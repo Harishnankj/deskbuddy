@@ -1,0 +1,16 @@
+{
+  "name": "deskbuddy-relay",
+  "version": "1.0.0",
+  "description": "Cloud WebSocket Relay and CORS proxy for DeskBuddy Companion Robot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.16.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

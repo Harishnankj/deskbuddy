@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeskBuddy Cloud Controller</title>
+  <style>
+    :root {
+      --bg-color: #0b0c10;
+      --card-bg: rgba(26, 26, 36, 0.6);
+      --primary: #45f3ff;
+      --secondary: #1f2833;
+      --text: #c5c6c7;
+      --text-highlight: #ffffff;
+      --glass-border: rgba(255, 255, 255, 0.05);
+      --glow: rgba(69, 243, 255, 0.3);
+      --success: #00ff87;
+      --danger: #ff6b6b;
+      --warning: #ffb86c;
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    body {
+      background: linear-gradient(135deg, #0b0c10, #1f2833, #0b0c10);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    .container {
+      width: 100%;
+      max-width: 600px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    header {
+      text-align: center;
+      padding: 10px 0;
+    }
+    h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      color: var(--text-highlight);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      background: linear-gradient(to right, var(--primary), var(--success));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      text-shadow: 0 0 20px var(--glow);
+    }
+    p.subtitle {
+      font-size: 0.9rem;
+      color: var(--primary);
+      margin-top: 5px;
+      opacity: 0.8;
+      letter-spacing: 1px;
+    }
+    .card {
+      background: var(--card-bg);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    .card:hover {
+      box-shadow: 0 12px 40px 0 rgba(69, 243, 255, 0.1);
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    label {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-highlight);
+      font-weight: 600;
+    }
+    .input-row {
+      display: flex;
+      gap: 10px;
+    }
+    input[type="password"], input[type="text"], select {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      padding: 12px;
+      color: var(--text-highlight);
+      outline: none;
+      font-size: 0.95rem;
+      transition: all 0.3s;
+    }
+    input:focus, select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 10px var(--glow);
+    }
+    button {
+      background: linear-gradient(to right, var(--primary), var(--success));
+      border: none;
+      border-radius: 8px;
+      padding: 12px 20px;
+      color: #0b0c10;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.3s;
+      box-shadow: 0 4px 15px var(--glow);
+    }
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(69, 243, 255, 0.5);
+    }
+    button:active {
+      transform: translateY(0);
+    }
+    .chat-box {
+      height: 250px;
+      overflow-y: auto;
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 15px;
+      background: rgba(0, 0, 0, 0.2);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+    .message {
+      max-width: 80%;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-size: 0.95rem;
+      line-height: 1.4;
+      animation: fadeIn 0.3s ease-out;
+    }
+    .message.user {
+      align-self: flex-end;
+      background: linear-gradient(135deg, var(--secondary), var(--primary));
+      color: #0b0c10;
+      border-bottom-right-radius: 4px;
+      font-weight: 500;
+    }
+    .message.ai {
+      align-self: flex-start;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-highlight);
+      border-bottom-left-radius: 4px;
+      border: 1px solid var(--glass-border);
+    }
+    .actions-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+    .btn-action {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--glass-border);
+      color: var(--text);
+      font-weight: 500;
+      box-shadow: none;
+      padding: 15px;
+      text-transform: capitalize;
+    }
+    .btn-action:hover {
+      background: var(--primary);
+      color: #0b0c10;
+      box-shadow: 0 4px 15px var(--glow);
+    }
+    .status-bar {
+      display: flex;
+      justify-content: space-around;
+      font-size: 0.8rem;
+      color: var(--primary);
+      padding: 10px 0;
+      border-bottom: 1px solid var(--glass-border);
+      margin-bottom: 15px;
+    }
+    .status-indicator {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 5px;
+      background-color: var(--danger);
+      transition: background-color 0.3s;
+    }
+    .status-indicator.online {
+      background-color: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1 id="main-title">DeskBuddy Cloud</h1>
+      <p class="subtitle">Remote Gemini AI Controller</p>
+    </header>
+
+    <!-- Connection Configuration Card -->
+    <div class="card">
+      <div class="form-group">
+        <label for="device-id">Device ID Pairing</label>
+        <div class="input-row">
+          <input type="text" id="device-id" placeholder="Enter ESP32 Device ID (e.g. db-A1B2)" autocomplete="off">
+          <button id="connect-btn" onclick="initializeConnection()">Connect</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status and Settings Card -->
+    <div class="card" style="opacity: 0.5; pointer-events: none;" id="status-settings-card">
+      <div class="status-bar">
+        <span id="stat-time">Time: --:--</span>
+        <span id="stat-sleep">State: Offline</span>
+        <span id="stat-pomo">Pomodoro: Off</span>
+        <span id="stat-wifi">RSSI: -- dBm</span>
+        <span>
+          <span class="status-indicator" id="stat-ws-dot"></span>
+          <span id="stat-ws" style="color: var(--danger);">ESP32: Offline</span>
+        </span>
+      </div>
+      
+      <div class="form-group">
+        <label for="api-key">Gemini API Key</label>
+        <div class="input-row">
+          <input type="text" id="api-key" placeholder="Enter Gemini API key (starts with AIzaSy)" autocomplete="off">
+          <button id="save-key-btn" onclick="saveKey()">Save Key</button>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top: 15px;">
+        <label for="model-select">Gemini Model</label>
+        <select id="model-select" onchange="localStorage.setItem('geminiModel', this.value)">
+          <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash (Recommended)</option>
+          <option value="gemini-2.5-pro">Gemini 2.5 Pro (High Reasoning)</option>
+        </select>
+      </div>
+      <div class="form-group" style="margin-top: 15px; display: flex; flex-direction: row; justify-content: space-between; align-items: center; background: rgba(0, 0, 0, 0.1); border: 1px solid var(--glass-border); border-radius: 8px; padding: 12px;">
+        <label for="handsfree-toggle" style="cursor: pointer; margin-bottom: 0;">Hands-Free "Buddy" Wake Word</label>
+        <input type="checkbox" id="handsfree-toggle" onchange="toggleHandsFree(this.checked)" style="width: auto; cursor: pointer; scale: 1.3;">
+      </div>
+    </div>
+
+    <!-- Chat Card -->
+    <div class="card" style="opacity: 0.5; pointer-events: none;" id="chat-card">
+      <label style="margin-bottom: 8px; display: block;" id="mic-status-label">Talk to DeskBuddy (Tap Touch Sensor to Speak)</label>
+      <div class="chat-box" id="chat-container">
+        <div class="message ai">Pair your DeskBuddy above to begin!</div>
+      </div>
+      <div class="input-row">
+        <input type="text" id="chat-input" placeholder="Type a message..." onkeydown="if(event.key === 'Enter') sendMessage()">
+        <button id="send-msg-btn" onclick="sendMessage()">Send</button>
+      </div>
+    </div>
+
+    <!-- Actions Card -->
+    <div class="card" style="opacity: 0.5; pointer-events: none;" id="actions-card">
+      <label style="margin-bottom: 12px; display: block;">Direct Animation Triggers</label>
+      <div class="actions-grid">
+        <button class="btn-action" id="act-wink" onclick="triggerAction('wink')"> 😉 Wink</button>
+        <button class="btn-action" id="act-happy" onclick="triggerAction('happy')"> 😄 Happy Eyes</button>
+        <button class="btn-action" id="act-blink" onclick="triggerAction('blink')"> 👁️ Blink</button>
+        <button class="btn-action" id="act-pomo" onclick="triggerAction('start_pomodoro')"> ⏱️ Toggle Pomodoro</button>
+        <button class="btn-action" id="act-sleep" onclick="triggerAction('sleep')"> 😴 Go to Sleep</button>
+        <button class="btn-action" id="act-wake" onclick="triggerAction('wake')"> ☀️ Wake Up</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const chatContainer = document.getElementById('chat-container');
+    const chatInput = document.getElementById('chat-input');
+    const apiKeyInput = document.getElementById('api-key');
+    const statusLabel = document.getElementById('mic-status-label');
+    const deviceIdInput = document.getElementById('device-id');
+    const connectBtn = document.getElementById('connect-btn');
+
+    let ws;
+    let isRecording = false;
+    let audioChunks = [];
+    let activeAiBubble = null;
+    let audioCtx = null;
+
+    let isHandsFreeActive = false;
+    let isSpeakingOrProcessing = false;
+    let recognition = null;
+    let autoStopTimer = null;
+    let pingInterval = null;
+
+    function unlockAudioContext() {
+      if (!audioCtx) {
+        try {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        } catch (e) {
+          console.warn("AudioContext with sampleRate not supported, falling back to default.", e);
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+    document.addEventListener('click', unlockAudioContext);
+    document.addEventListener('touchstart', unlockAudioContext);
+
+    function initializeConnection() {
+      const deviceId = deviceIdInput.value.trim();
+      if (!deviceId) {
+        alert("Please enter a valid Device ID!");
+        return;
+      }
+      
+      // Save device ID
+      localStorage.setItem('deskbuddy_device_id', deviceId);
+      
+      if (ws) {
+        ws.close();
+      }
+
+      connectBtn.innerText = "Connecting...";
+      connectBtn.disabled = true;
+      deviceIdInput.disabled = true;
+
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${location.host}/client?device_id=${encodeURIComponent(deviceId)}`;
+      
+      ws = new WebSocket(wsUrl);
+      ws.binaryType = 'blob';
+
+      ws.onopen = () => {
+        console.log("Connected to cloud relay.");
+        connectBtn.innerText = "Disconnect";
+        connectBtn.disabled = false;
+        
+        // Request immediate state sync from ESP32
+        ws.send(JSON.stringify({ event: 'get_status' }));
+        
+        // Start ping to keep connection alive
+        if (pingInterval) clearInterval(pingInterval);
+        pingInterval = setInterval(() => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ event: 'ping' }));
+          }
+        }, 30000);
+      };
+
+      ws.onclose = () => {
+        console.log("WebSocket disconnected.");
+        connectBtn.innerText = "Connect";
+        connectBtn.disabled = false;
+        deviceIdInput.disabled = false;
+        
+        if (pingInterval) clearInterval(pingInterval);
+        
+        // Gray out components
+        disableDashboard();
+      };
+
+      ws.onmessage = async (event) => {
+        if (typeof event.data === 'string') {
+          const msg = JSON.parse(event.data);
+          
+          if (msg.event === 'esp32_status') {
+            const isOnline = msg.status === 'online';
+            updateWebSocketStatus(isOnline);
+            if (isOnline) {
+              enableDashboard();
+              // Request state
+              ws.send(JSON.stringify({ event: 'get_status' }));
+            } else {
+              disableDashboard();
+            }
+          }
+          else if (msg.event === 'status') {
+            updateStatus(msg);
+            if (msg.apiKey) {
+              apiKeyInput.value = msg.apiKey;
+              apiKeyInput.placeholder = "API Key saved (hidden)";
+            }
+          }
+          else if (msg.event === 'set_key_response') {
+            if (msg.status === 'ok') {
+              alert("Gemini API Key saved successfully on ESP32!");
+              apiKeyInput.placeholder = "API Key saved";
+            } else {
+              alert("Failed to save API key on ESP32.");
+            }
+          }
+          else if (msg.event === 'speak_listening') {
+            speakALoud("listening");
+            statusLabel.innerText = "📣 DeskBuddy says: Listening...";
+            statusLabel.style.color = "var(--warning)";
+            activeAiBubble = appendMessage("Listening...", 'ai');
+          } 
+          else if (msg.event === 'start_recording') {
+            isRecording = true;
+            isSpeakingOrProcessing = true;
+            pauseWakeWordListener();
+            audioChunks = [];
+            statusLabel.innerText = "🎤 Listening to your voice...";
+            statusLabel.style.color = "var(--danger)";
+            if (!activeAiBubble) {
+              activeAiBubble = appendMessage("Listening...", 'ai');
+            }
+            if (isHandsFreeActive) {
+              if (autoStopTimer) clearTimeout(autoStopTimer);
+              autoStopTimer = setTimeout(autoStopRecordingByVoice, 5000);
+            }
+          } 
+          else if (msg.event === 'stop_recording') {
+            isRecording = false;
+            isSpeakingOrProcessing = true;
+            pauseWakeWordListener();
+            if (autoStopTimer) clearTimeout(autoStopTimer);
+            statusLabel.innerText = "⚙️ Processing Voice Command...";
+            statusLabel.style.color = "var(--primary)";
+            if (activeAiBubble) activeAiBubble.innerText = "Thinking...";
+            processVoicePayload();
+          }
+        } else if (event.data instanceof Blob) {
+          if (isRecording) {
+            const buffer = await event.data.arrayBuffer();
+            audioChunks.push(new Int16Array(buffer));
+            const totalBytes = audioChunks.length * 256;
+            statusLabel.innerText = `🎤 Recording: Received ${totalBytes} bytes from mic...`;
+          }
+        }
+      };
+    }
+
+    function enableDashboard() {
+      document.getElementById('status-settings-card').style.opacity = "1";
+      document.getElementById('status-settings-card').style.pointerEvents = "auto";
+      document.getElementById('chat-card').style.opacity = "1";
+      document.getElementById('chat-card').style.pointerEvents = "auto";
+      document.getElementById('actions-card').style.opacity = "1";
+      document.getElementById('actions-card').style.pointerEvents = "auto";
+    }
+
+    function disableDashboard() {
+      document.getElementById('status-settings-card').style.opacity = "0.5";
+      document.getElementById('status-settings-card').style.pointerEvents = "none";
+      document.getElementById('chat-card').style.opacity = "0.5";
+      document.getElementById('chat-card').style.pointerEvents = "none";
+      document.getElementById('actions-card').style.opacity = "0.5";
+      document.getElementById('actions-card').style.pointerEvents = "none";
+      
+      updateWebSocketStatus(false);
+    }
+
+    function updateWebSocketStatus(isOnline) {
+      const dot = document.getElementById('stat-ws-dot');
+      const label = document.getElementById('stat-ws');
+      if (isOnline) {
+        dot.className = "status-indicator online";
+        label.innerText = "ESP32: Online";
+        label.style.color = "var(--success)";
+      } else {
+        dot.className = "status-indicator";
+        label.innerText = "ESP32: Offline";
+        label.style.color = "var(--danger)";
+        document.getElementById('stat-sleep').innerText = "State: Offline";
+      }
+    }
+
+    async function processVoicePayload() {
+      if (audioChunks.length === 0) {
+        statusLabel.innerText = "Talk to DeskBuddy (Tap Touch Sensor to Speak)";
+        statusLabel.style.color = "";
+        if (activeAiBubble) activeAiBubble.innerText = "No voice detected. Please try again.";
+        return;
+      }
+
+      const wavBlob = createWavFile(audioChunks);
+      audioChunks = [];
+
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64Data = reader.result.split(',')[1];
+        sendAudioToGemini(base64Data);
+      };
+      reader.readAsDataURL(wavBlob);
+    }
+
+    async function sendAudioToGemini(base64Data) {
+      const key = apiKeyInput.value.trim();
+      if (!key) {
+        if (activeAiBubble) activeAiBubble.innerText = "Error: Gemini API Key is missing. Enter it in the dashboard settings.";
+        statusLabel.innerText = "Talk to DeskBuddy (Tap Touch Sensor to Speak)";
+        statusLabel.style.color = "";
+        return;
+      }
+
+      try {
+        const model = document.getElementById('model-select').value;
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+        const payload = {
+          contents: [{
+            parts: [
+              {
+                inlineData: {
+                  mimeType: "audio/wav",
+                  data: base64Data
+                }
+              },
+              {
+                text: 
+                  "You are DeskBuddy, a cute and helpful desktop companion robot. Respond to the user's voice command. " +
+                  "You MUST ALWAYS respond in strict raw JSON format matching this schema: " +
+                  "{\"reply\": \"Short response (max 40 characters)\", \"action\": \"led_on\" | \"led_off\" | \"happy\" | \"wink\" | \"blink\" | \"sleep\" | \"wake\" | \"start_pomodoro\" | \"stop_pomodoro\" | \"none\"}. " +
+                  "Return raw JSON only without markdown formatting."
+              }
+            ]
+          }],
+          generationConfig: {
+            responseMimeType: "application/json"
+          }
+        };
+
+        const response = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const errMsg = errorData.error?.message || `HTTP Error ${response.status}`;
+          throw new Error(errMsg);
+        }
+
+        const resData = await response.json();
+        const generatedJson = resData.candidates[0].content.parts[0].text;
+        const parsed = JSON.parse(generatedJson);
+
+        if (activeAiBubble) activeAiBubble.innerText = parsed.reply;
+        
+        // Trigger action via WebSocket
+        ws.send(JSON.stringify({
+          event: 'action',
+          type: parsed.action,
+          reply: parsed.reply
+        }));
+
+        await speakALoud(parsed.reply);
+        
+        isSpeakingOrProcessing = false;
+        startWakeWordListener();
+
+      } catch (err) {
+        console.error(err);
+        if (activeAiBubble) activeAiBubble.innerText = `Error contacting Gemini: ${err.message}`;
+        isSpeakingOrProcessing = false;
+        startWakeWordListener();
+      } finally {
+        statusLabel.innerText = "Talk to DeskBuddy (Tap Touch Sensor to Speak)";
+        statusLabel.style.color = "";
+        activeAiBubble = null;
+      }
+    }
+
+    function createWavFile(chunks) {
+      let totalLength = 0;
+      for (const chunk of chunks) {
+        totalLength += chunk.length;
+      }
+      
+      const buffer = new ArrayBuffer(44 + totalLength * 2);
+      const view = new DataView(buffer);
+      
+      writeString(view, 0, 'RIFF');
+      view.setUint32(4, 36 + totalLength * 2, true);
+      writeString(view, 8, 'WAVE');
+      writeString(view, 12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, 16000, true);
+      view.setUint32(28, 16000 * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeString(view, 36, 'data');
+      view.setUint32(40, totalLength * 2, true);
+      
+      let offset = 44;
+      for (const chunk of chunks) {
+        for (let i = 0; i < chunk.length; i++) {
+          view.setInt16(offset, chunk[i], true);
+          offset += 2;
+        }
+      }
+      return new Blob([view], { type: 'audio/wav' });
+    }
+
+    function writeString(view, offset, string) {
+      for (let i = 0; i < string.length; i++) {
+        view.setUint8(offset + i, string.charCodeAt(i));
+      }
+    }
+
+    async function speakALoud(text) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      try {
+        const localTtsUrl = `/tts?text=${encodeURIComponent(text)}`;
+        const response = await fetch(localTtsUrl);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+        
+        unlockAudioContext();
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        const channelData = audioBuffer.getChannelData(0);
+        
+        const pcmData = new Int16Array(channelData.length);
+        for (let i = 0; i < channelData.length; i++) {
+          let val = Math.floor(channelData[i] * 32767);
+          if (val > 32767) val = 32767;
+          else if (val < -32768) val = -32768;
+          pcmData[i] = val;
+        }
+        
+        const chunkSize = 1024;
+        for (let i = 0; i < pcmData.length; i += chunkSize) {
+          const chunk = pcmData.slice(i, i + chunkSize);
+          ws.send(chunk);
+          await new Promise(r => setTimeout(r, 40));
+        }
+      } catch (err) {
+        console.error("TTS output stream failed", err);
+        statusLabel.innerText = `❌ Speaker Audio Error: ${err.message}`;
+        statusLabel.style.color = "var(--danger)";
+      }
+    }
+
+    function updateStatus(data) {
+      if (document.getElementById('stat-time')) document.getElementById('stat-time').innerText = "Time: " + data.time;
+      if (document.getElementById('stat-sleep')) document.getElementById('stat-sleep').innerText = "State: " + (data.sleeping ? "Sleeping" : "Active");
+      if (document.getElementById('stat-pomo')) document.getElementById('stat-pomo').innerText = "Pomodoro: " + (data.pomodoroRunning ? "On" : "Off");
+      if (document.getElementById('stat-wifi')) document.getElementById('stat-wifi').innerText = "RSSI: " + data.wifiRSSI + " dBm";
+    }
+
+    function saveKey() {
+      const key = apiKeyInput.value.trim();
+      if(!key) return alert("Please enter an API Key!");
+      
+      ws.send(JSON.stringify({
+        event: 'set_key',
+        key: key
+      }));
+    }
+
+    async function sendMessage() {
+      const msg = chatInput.value.trim();
+      if(!msg) return;
+
+      appendMessage(msg, 'user');
+      chatInput.value = "";
+
+      const aiMsgDiv = appendMessage("Thinking...", 'ai');
+      const key = apiKeyInput.value.trim();
+      if(!key) {
+        aiMsgDiv.innerText = "Error: Gemini API Key is missing. Set it in the settings!";
+        return;
+      }
+
+      try {
+        const model = document.getElementById('model-select').value;
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+        const payload = {
+          contents: [{
+            parts: [{ text: msg }]
+          }],
+          systemInstruction: {
+            parts: [{
+              text: 
+                "You are DeskBuddy, an interactive desktop companion robot. Respond to the user's text message. " +
+                "You MUST ALWAYS respond in strict raw JSON format matching this schema: " +
+                "{\"reply\": \"Friendly response (max 40 characters)\", \"action\": \"led_on\" | \"led_off\" | \"happy\" | \"wink\" | \"blink\" | \"sleep\" | \"wake\" | \"start_pomodoro\" | \"stop_pomodoro\" | \"none\"}. " +
+                "Do not wrap in code blocks. Return raw JSON."
+            }]
+          },
+          generationConfig: {
+            responseMimeType: "application/json"
+          }
+        };
+
+        const response = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const errMsg = errorData.error?.message || `HTTP Error ${response.status}`;
+          throw new Error(errMsg);
+        }
+
+        const resData = await response.json();
+        const generatedJson = resData.candidates[0].content.parts[0].text;
+        const parsed = JSON.parse(generatedJson);
+
+        aiMsgDiv.innerText = parsed.reply;
+        
+        isSpeakingOrProcessing = true;
+        pauseWakeWordListener();
+        
+        // Trigger action via WebSocket
+        ws.send(JSON.stringify({
+          event: 'action',
+          type: parsed.action,
+          reply: parsed.reply
+        }));
+
+        await speakALoud(parsed.reply);
+        
+        isSpeakingOrProcessing = false;
+        startWakeWordListener();
+
+      } catch (err) {
+        aiMsgDiv.innerText = `Error contacting Gemini: ${err.message}`;
+        console.error(err);
+        isSpeakingOrProcessing = false;
+        startWakeWordListener();
+      }
+    }
+
+    function triggerAction(type) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        event: 'action',
+        type: type
+      }));
+    }
+
+    function appendMessage(text, sender) {
+      const div = document.createElement('div');
+      div.className = `message ${sender}`;
+      div.innerText = text;
+      chatContainer.appendChild(div);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+      return div;
+    }
+
+    function toggleHandsFree(enabled) {
+      isHandsFreeActive = enabled;
+      localStorage.setItem('handsfreeEnabled', enabled ? 'true' : 'false');
+      if (enabled) {
+        initSpeechRecognition();
+      } else {
+        stopSpeechRecognition();
+      }
+    }
+
+    function initSpeechRecognition() {
+      if (recognition) return;
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert("Speech Recognition not supported in this browser. Please use Chrome.");
+        document.getElementById('handsfree-toggle').checked = false;
+        isHandsFreeActive = false;
+        localStorage.setItem('handsfreeEnabled', 'false');
+        return;
+      }
+      
+      recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+      
+      recognition.onstart = () => {
+        console.log("Wake word listener started.");
+      };
+      
+      recognition.onend = () => {
+        console.log("Wake word listener stopped.");
+        if (isHandsFreeActive && !isSpeakingOrProcessing && !isRecording) {
+          try {
+            recognition.start();
+          } catch(e) {
+            console.error("Restart recognition failed:", e);
+          }
+        }
+      };
+      
+      recognition.onerror = (e) => {
+        console.error("Speech recognition error:", e.error);
+        if (e.error === 'not-allowed') {
+          alert("Microphone access denied. Please allow microphone access to run Hands-Free mode.");
+          document.getElementById('handsfree-toggle').checked = false;
+          isHandsFreeActive = false;
+        }
+      };
+      
+      recognition.onresult = (event) => {
+        const result = event.results[event.results.length - 1];
+        if (result.isFinal) {
+          const transcript = result[0].transcript.toLowerCase().trim();
+          console.log("Heard:", transcript);
+          if (transcript.includes("buddy")) {
+            console.log("Wake word detected!");
+            triggerVoiceGreeting();
+          }
+        }
+      };
+
+      try {
+        recognition.start();
+      } catch(e) {
+        console.error("Start recognition failed:", e);
+      }
+    }
+
+    function stopSpeechRecognition() {
+      if (recognition) {
+        try {
+          recognition.abort();
+        } catch(e) {}
+        recognition = null;
+      }
+    }
+
+    function startWakeWordListener() {
+      if (!isHandsFreeActive) return;
+      if (!recognition) {
+        initSpeechRecognition();
+      } else {
+        try {
+          recognition.start();
+        } catch(e) {}
+      }
+    }
+
+    function pauseWakeWordListener() {
+      if (recognition) {
+        try {
+          recognition.abort();
+        } catch(e) {}
+      }
+    }
+
+    function triggerVoiceGreeting() {
+      isSpeakingOrProcessing = true;
+      pauseWakeWordListener();
+      if (autoStopTimer) clearTimeout(autoStopTimer);
+      
+      ws.send(JSON.stringify({ event: 'action', type: 'trigger_voice' }));
+    }
+
+    function autoStopRecordingByVoice() {
+      console.log("Voice timeout reached. Auto-stopping...");
+      ws.send(JSON.stringify({ event: 'action', type: 'stop_voice' }));
+    }
+
+    window.onload = () => {
+      // Restore device ID if saved
+      const savedDeviceId = localStorage.getItem('deskbuddy_device_id');
+      if (savedDeviceId) {
+        deviceIdInput.value = savedDeviceId;
+        initializeConnection();
+      }
+
+      const savedModel = localStorage.getItem('geminiModel');
+      if (savedModel) {
+        document.getElementById('model-select').value = savedModel;
+      }
+      const savedHandsFree = localStorage.getItem('handsfreeEnabled');
+      if (savedHandsFree === 'true') {
+        document.getElementById('handsfree-toggle').checked = true;
+        isHandsFreeActive = true;
+        initSpeechRecognition();
+      }
+    };
+  </script>
+</body>
+</html>
