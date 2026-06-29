@@ -214,6 +214,10 @@
     <!-- Connection Configuration Card -->
     <div class="card">
       <div class="form-group">
+        <label for="relay-host">Relay Server URL</label>
+        <input type="text" id="relay-host" placeholder="e.g. deskbuddy-relay.onrender.com" autocomplete="off" style="margin-bottom: 10px;">
+      </div>
+      <div class="form-group">
         <label for="device-id">Device ID Pairing</label>
         <div class="input-row">
           <input type="text" id="device-id" placeholder="Enter ESP32 Device ID (e.g. db-A1B2)" autocomplete="off">
@@ -287,6 +291,7 @@
     const apiKeyInput = document.getElementById('api-key');
     const statusLabel = document.getElementById('mic-status-label');
     const deviceIdInput = document.getElementById('device-id');
+    const relayHostInput = document.getElementById('relay-host');
     const connectBtn = document.getElementById('connect-btn');
 
     let ws;
@@ -319,13 +324,25 @@
 
     function initializeConnection() {
       const deviceId = deviceIdInput.value.trim();
+      let relayHost = relayHostInput.value.trim();
+      
+      if (!relayHost) {
+        relayHost = location.host;
+        relayHostInput.value = relayHost;
+      }
+      
       if (!deviceId) {
         alert("Please enter a valid Device ID!");
         return;
       }
       
-      // Save device ID
+      // Clean prefix if copy-pasted
+      relayHost = relayHost.replace(/^(https?:\/\/)?(wss?:\/\/)?/, '').replace(/\/$/, '');
+      relayHostInput.value = relayHost;
+      
+      // Save settings
       localStorage.setItem('deskbuddy_device_id', deviceId);
+      localStorage.setItem('deskbuddy_relay_host', relayHost);
       
       if (ws) {
         ws.close();
@@ -334,9 +351,11 @@
       connectBtn.innerText = "Connecting...";
       connectBtn.disabled = true;
       deviceIdInput.disabled = true;
+      relayHostInput.disabled = true;
 
-      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${location.host}/client?device_id=${encodeURIComponent(deviceId)}`;
+      const isSecure = location.protocol === 'https:' || !relayHost.includes('localhost');
+      const protocol = isSecure ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${relayHost}/client?device_id=${encodeURIComponent(deviceId)}`;
       
       ws = new WebSocket(wsUrl);
       ws.binaryType = 'blob';
@@ -363,6 +382,7 @@
         connectBtn.innerText = "Connect";
         connectBtn.disabled = false;
         deviceIdInput.disabled = false;
+        relayHostInput.disabled = false;
         
         if (pingInterval) clearInterval(pingInterval);
         
@@ -615,7 +635,10 @@
     async function speakALoud(text) {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       try {
-        const localTtsUrl = `/tts?text=${encodeURIComponent(text)}`;
+        const relayHost = localStorage.getItem('deskbuddy_relay_host') || location.host;
+        const isSecure = location.protocol === 'https:' || !relayHost.includes('localhost');
+        const httpProtocol = isSecure ? 'https:' : 'http:';
+        const localTtsUrl = `${httpProtocol}//${relayHost}/tts?text=${encodeURIComponent(text)}`;
         const response = await fetch(localTtsUrl);
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
@@ -868,7 +891,14 @@
     }
 
     window.onload = () => {
-      // Restore device ID if saved
+      // Restore settings
+      const savedRelayHost = localStorage.getItem('deskbuddy_relay_host');
+      if (savedRelayHost) {
+        relayHostInput.value = savedRelayHost;
+      } else {
+        relayHostInput.value = location.host;
+      }
+
       const savedDeviceId = localStorage.getItem('deskbuddy_device_id');
       if (savedDeviceId) {
         deviceIdInput.value = savedDeviceId;
