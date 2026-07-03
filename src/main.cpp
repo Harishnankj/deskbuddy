@@ -703,6 +703,8 @@ void setup() {
   bool triggerWiFiReset = false;
   unsigned long startWait = millis();
   const unsigned long WAIT_TIME = 4000; // 4 seconds window to trigger reset
+  unsigned long activeStart = 0;
+  bool wasActive = false;
   
   while (millis() - startWait < WAIT_TIME) {
     // Check if any of the reset triggers are active:
@@ -713,9 +715,18 @@ void setup() {
     bool buttonActive = (digitalRead(BUTTON_PIN) == LOW);
     bool bootActive = (digitalRead(ONBOARD_BOOT_PIN) == LOW);
     
-    if (touchActive || buttonActive || bootActive) {
-      triggerWiFiReset = true;
-      break;
+    bool currentlyActive = (touchActive || buttonActive || bootActive);
+    
+    if (currentlyActive) {
+      if (!wasActive) {
+        activeStart = millis();
+        wasActive = true;
+      } else if (millis() - activeStart > 2000) { // Held down continuously for 2 seconds
+        triggerWiFiReset = true;
+        break;
+      }
+    } else {
+      wasActive = false;
     }
     
     // Draw prompt and progress bar
@@ -725,9 +736,16 @@ void setup() {
     display.setCursor(0, 0);
     display.println("     [ DeskBuddy ]");
     display.println("");
-    display.println("Hold Touch sensor or");
-    display.println("press Boot/Button now");
-    display.println("to reset Wi-Fi settings");
+    if (wasActive && (millis() - activeStart > 100)) {
+      display.println("  KEEP HOLDING TO RESET");
+      int holdProgress = map(millis() - activeStart, 0, 2000, 0, 120);
+      if (holdProgress > 120) holdProgress = 120;
+      display.fillRect(4, 32, holdProgress, 6, WHITE);
+    } else {
+      display.println("Hold Touch sensor or");
+      display.println("press Boot/Button now");
+      display.println("to reset Wi-Fi settings");
+    }
     
     // Draw countdown progress bar
     int progressWidth = map(millis() - startWait, 0, WAIT_TIME, 120, 0);
