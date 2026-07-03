@@ -3,6 +3,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <WiFiManager.h>
 #include <time.h>
 #include <WebSocketsClient.h>
@@ -14,18 +15,25 @@
 #include <WiFiClientSecure.h>
 #include "startup_sound.h"
 
-// Hardware Pins (realigned for mic/speaker and D13 button)
+// Hardware Pins (realigned for ESP32-C3 SuperMini)
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_ADDR 0x3C
-#define TOUCH_PIN 26
-#define BUTTON_PIN 13
+#define TOUCH_PIN 2
+#define BUTTON_PIN 3
+#define ONBOARD_BOOT_PIN 9
 
-// Onboard status LED
+// I2S Audio Pins (Shared clocks configuration)
+#define I2S_WS_PIN 4
+#define I2S_BCLK_PIN 5
+#define I2S_DIN_PIN 6   // Mic input
+#define I2S_DOUT_PIN 7  // Speaker output
+
+// Onboard status LED (GPIO 8 is standard on C3 SuperMini)
 #ifdef LED_BUILTIN
 const int ledPin = LED_BUILTIN;
 #else
-const int ledPin = 2;
+const int ledPin = 8;
 #endif
 
 // NTP configuration
@@ -100,10 +108,10 @@ void wakeAnimation();
 void sleepingScreen();
 void showBreakTime();
 void executeAction(String action);
-void setupI2SSpeaker();
-void setupI2SMic();
+void setupI2SFullDuplex();
 void playTestTone();
 void setupDeviceId();
+void recoverI2C();
 
 // --- WebSocket Event Callback ---
 
@@ -112,9 +120,18 @@ void onWebSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     case WStype_DISCONNECTED:
       Serial.println("[WebSocketClient] Disconnected from Cloud Relay");
       break;
-    case WStype_CONNECTED:
+    case WStype_CONNECTED: {
       Serial.println("[WebSocketClient] Connected to Cloud Relay!");
+      // Send registration payload with saved Gemini API Key
+      JsonDocument regDoc;
+      regDoc["event"] = "register_esp32";
+      regDoc["apiKey"] = geminiApiKey;
+      String regStr;
+      serializeJson(regDoc, regStr);
+      webSocket.sendTXT(regStr);
+      Serial.println("[WebSocketClient] Registration sent to server.");
       break;
+    }
     case WStype_TEXT: {
       JsonDocument doc;
       DeserializationError error = deserializeJson(doc, payload);
@@ -154,6 +171,15 @@ void onWebSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         serializeJson(resDoc, resStr);
         webSocket.sendTXT(resStr);
         Serial.println("[WebSocketClient] Gemini API key updated.");
+
+        // Update server registration with new key
+        JsonDocument regDoc;
+        regDoc["event"] = "register_esp32";
+        regDoc["apiKey"] = geminiApiKey;
+        String regStr;
+        serializeJson(regDoc, regStr);
+        webSocket.sendTXT(regStr);
+        Serial.println("[WebSocketClient] Re-registered key with server.");
       }
       else if (event == "action") {
         String actionType = doc["type"];
@@ -281,47 +307,26 @@ void playTestTone() {
   Serial.println("[Speaker Test] Startup voice greeting complete.");
 }
 
-void setupI2SSpeaker() {
+void setupI2SFullDuplex() {
   i2s_config_t i2s_config = {
-    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_RX),
     .sample_rate = 16000,
     .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
     .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
     .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-    .dma_buf_count = 8,
-    .dma_buf_len = 64,
+    .dma_buf_count = 16,
+    .dma_buf_len = 256,
     .use_apll = false,
     .tx_desc_auto_clear = true
   };
   i2s_pin_config_t pin_config = {
-    .bck_io_num = 14,
-    .ws_io_num = 27,
-    .data_out_num = 19,
-    .data_in_num = I2S_PIN_NO_CHANGE
+    .bck_io_num = I2S_BCLK_PIN,
+    .ws_io_num = I2S_WS_PIN,
+    .data_out_num = I2S_DOUT_PIN,
+    .data_in_num = I2S_DIN_PIN
   };
   i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
   i2s_set_pin(I2S_NUM_0, &pin_config);
-}
-
-void setupI2SMic() {
-  i2s_config_t i2s_config = {
-    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
-    .sample_rate = 16000,
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-    .dma_buf_count = 8,
-    .dma_buf_len = 64,
-    .use_apll = false
-  };
-  i2s_pin_config_t pin_config = {
-    .bck_io_num = 32,
-    .ws_io_num = 25,
-    .data_out_num = I2S_PIN_NO_CHANGE,
-    .data_in_num = 33
-  };
-  i2s_driver_install(I2S_NUM_1, &i2s_config, 0, NULL);
-  i2s_set_pin(I2S_NUM_1, &pin_config);
 }
 
 // --- original DeskMate display and timer routines ---
@@ -330,7 +335,32 @@ void drawAIText() {
   if (aiReplyText.length() > 0 && millis() - aiReplyDisplayStart < 6000) {
     display.setTextSize(1);
     display.setTextColor(WHITE);
-    display.setCursor(4, 48); // Fits 2 lines at the bottom (Y=48 to Y=64)
+    
+    int textWidth = aiReplyText.length() * 6;
+    int viewWidth = 120;
+    int scrollRange = textWidth - viewWidth;
+    
+    int xPos = 4;
+    if (scrollRange > 0) {
+      unsigned long elapsed = millis() - aiReplyDisplayStart;
+      unsigned long scrollDuration = scrollRange * 25; // 25ms per pixel scroll speed
+      unsigned long cycleTime = scrollDuration + 2000; // 1s start pause + 1s end pause
+      
+      unsigned long phase = elapsed % cycleTime;
+      if (phase < 1000) {
+        xPos = 4;
+      } else if (phase < 1000 + scrollDuration) {
+        int pixelsScrolled = (phase - 1000) / 25;
+        xPos = 4 - pixelsScrolled;
+      } else {
+        xPos = 4 - scrollRange;
+      }
+    } else {
+      // Center small text
+      xPos = (128 - textWidth) / 2;
+    }
+    
+    display.setCursor(xPos, 56); // Shifted down from 48 to 56 to avoid eyes
     display.print(aiReplyText);
   }
 }
@@ -486,11 +516,107 @@ void sleepingScreen() {
   if (zY < 5) zY = 45;
 }
 
-void connectWiFi() {
-  WiFiManager wm;
-  if (wm.autoConnect("DeskMate_Setup")) {
-    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+void recoverI2C() {
+  Serial.println("[I2C] Running bus recovery...");
+  Wire.end(); // Detach I2C peripheral from pins to allow manual GPIO control
+  pinMode(0, OUTPUT); // SDA
+  pinMode(1, OUTPUT); // SCL
+  
+  // Force SCL high initially
+  digitalWrite(1, HIGH);
+  delayMicroseconds(5);
+  
+  // Clock 9 times to free SDA
+  for (int i = 0; i < 9; i++) {
+    digitalWrite(1, LOW);
+    delayMicroseconds(5);
+    digitalWrite(1, HIGH);
+    delayMicroseconds(5);
   }
+  
+  // Generate STOP condition
+  digitalWrite(0, LOW);
+  delayMicroseconds(5);
+  digitalWrite(1, HIGH);
+  delayMicroseconds(5);
+  digitalWrite(0, HIGH);
+  delayMicroseconds(5);
+  
+  Serial.println("[I2C] Bus recovery complete.");
+}
+
+void onWiFiEvent(WiFiEvent_t event) {
+  // Set low TX power for ALL WiFi events to prevent the driver from resetting it to max during connection/scanning
+  esp_wifi_set_max_tx_power(WIFI_POWER_8_5dBm);
+}
+
+void configModeCallback(WiFiManager *myWiFiManager) {
+  // Force low TX power during AP mode to prevent brownouts
+  esp_wifi_set_max_tx_power(WIFI_POWER_8_5dBm);
+  
+  // Re-initialize display for setup mode to recover from any transients
+  Serial.println("[Setup] Re-initializing display for config portal AP mode...");
+  recoverI2C();
+  Wire.begin(0, 1);
+  display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
+  display.ssd1306_command(SSD1306_DISPLAYON);
+  
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.println("  Wi-Fi Setup Mode");
+  display.println("---------------------");
+  display.println("1. Connect to Wi-Fi:");
+  display.println("   DeskMate_Setup");
+  display.println("2. Open browser to:");
+  display.println("   192.168.4.1");
+  display.println("3. Configure new AP");
+  display.display();
+}
+
+void connectWiFi() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 20);
+  display.println("Connecting to Wi-Fi...");
+  display.display();
+  delay(100); // Give screen time to draw
+
+  // Turn off display charge pump to protect from WiFi power transients
+  Serial.println("[WiFi] Turning display off during connection...");
+  display.ssd1306_command(SSD1306_DISPLAYOFF);
+  delay(50);
+
+  Serial.println("[WiFi] Registering Event Listener...");
+  WiFi.onEvent(onWiFiEvent);
+
+  Serial.println("[WiFi] Setting mode STA...");
+  WiFi.mode(WIFI_STA);
+  Serial.println("[WiFi] Setting max TX power...");
+  esp_wifi_set_max_tx_power(WIFI_POWER_8_5dBm); // Prevent brownout/crash on ESP32-C3 SuperMini during WiFi operations
+  
+  Serial.println("[WiFi] Creating WiFiManager instance...");
+  WiFiManager wm;
+  Serial.println("[WiFi] Registering AP Callback...");
+  wm.setAPCallback(configModeCallback);
+  
+  // Set timeouts to prevent getting stuck in portals forever
+  wm.setConfigPortalTimeout(180); // 3 minutes timeout to configure
+  wm.setConnectTimeout(30);       // 30 seconds connection timeout
+  
+  Serial.println("[WiFi] Calling autoConnect...");
+  if (wm.autoConnect("DeskMate_Setup")) {
+    Serial.println("[WiFi] autoConnect returned true, syncing time...");
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+    Serial.println("[WiFi] Time sync initiated.");
+  } else {
+    Serial.println("[WiFi] autoConnect returned false.");
+    // If it timed out, restart ESP to try again
+    ESP.restart();
+  }
+  Serial.println("[WiFi] connectWiFi completed.");
 }
 
 String getTimeString() {
@@ -503,6 +629,22 @@ String getTimeString() {
 }
 
 void drawTopInfo() {
+  // Self-healing display check: Ping the OLED once per second.
+  // If it doesn't respond (e.g. because of a transient power crash), recover and re-initialize it.
+  static unsigned long lastOledCheck = 0;
+  if (millis() - lastOledCheck > 1000) {
+    lastOledCheck = millis();
+    Wire.beginTransmission(OLED_ADDR);
+    if (Wire.endTransmission() != 0) {
+      Serial.println("[Display] Crash/lockup detected! Attempting recovery...");
+      recoverI2C();
+      Wire.begin(0, 1);
+      Wire.setTimeOut(100);
+      display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
+      display.ssd1306_command(SSD1306_DISPLAYON);
+    }
+  }
+
   if (!pomodoroRunning) {
     display.setTextSize(2);
     display.setTextColor(WHITE);
@@ -540,10 +682,12 @@ void setup() {
 
   pinMode(TOUCH_PIN, INPUT);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(ONBOARD_BOOT_PIN, INPUT_PULLUP);
   pinMode(ledPin, OUTPUT);
   digitalWrite(ledPin, LOW);
 
-  Wire.begin(21, 22);
+  Wire.begin(0, 1);
+  Wire.setTimeOut(100); // Prevent blocking lockups if OLED crashes
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
     Serial.println("OLED Failed");
@@ -555,45 +699,208 @@ void setup() {
   // Show starting screen
   drawEyes(0, 0);
 
-  // Connect via WiFiManager config portal
-  connectWiFi();
-
-  // Initialize device ID
-  setupDeviceId();
-
-  // Load API Key from flash preferences
-  preferences.begin("deskbuddy", false);
-  geminiApiKey = preferences.getString("apiKey", "AQ.Ab8RN6IO_s5pTZaB2bOUIXs5yKpu_SF6cBi0TaSo9dR4Gva2eA");
-  preferences.end();
-  Serial.printf("[Preferences] Active Gemini API Key: %s\n", geminiApiKey.c_str());
-
-  // Setup I2S Audio Speaker and Mic
-  setupI2SSpeaker();
-  setupI2SMic();
-
-  // Play diagnostic test tone to verify physical speaker is working
-  playTestTone();
-
-  // Connect to Cloud WebSocket Relay
-  String wsUrl = "/esp32?device_id=" + deviceId;
-  webSocket.beginSslWithCA(CLOUD_RELAY_HOST, CLOUD_RELAY_PORT, wsUrl.c_str());
-  webSocket.onEvent(onWebSocketEvent);
-  webSocket.setReconnectInterval(5000);
-
-  // Show connected IP and Device ID on screen
-  if (WiFi.status() == WL_CONNECTED) {
+  // Interactive WiFi reset prompt on boot
+  bool triggerWiFiReset = false;
+  unsigned long startWait = millis();
+  const unsigned long WAIT_TIME = 4000; // 4 seconds window to trigger reset
+  
+  while (millis() - startWait < WAIT_TIME) {
+    // Check if any of the reset triggers are active:
+    // 1. TOUCH_PIN is active HIGH (touched)
+    // 2. BUTTON_PIN is active LOW (pressed)
+    // 3. ONBOARD_BOOT_PIN is active LOW (pressed)
+    bool touchActive = (digitalRead(TOUCH_PIN) == HIGH);
+    bool buttonActive = (digitalRead(BUTTON_PIN) == LOW);
+    bool bootActive = (digitalRead(ONBOARD_BOOT_PIN) == LOW);
+    
+    if (touchActive || buttonActive || bootActive) {
+      triggerWiFiReset = true;
+      break;
+    }
+    
+    // Draw prompt and progress bar
     display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(WHITE);
     display.setCursor(0, 0);
+    display.println("     [ DeskBuddy ]");
+    display.println("");
+    display.println("Hold Touch sensor or");
+    display.println("press Boot/Button now");
+    display.println("to reset Wi-Fi settings");
+    
+    // Draw countdown progress bar
+    int progressWidth = map(millis() - startWait, 0, WAIT_TIME, 120, 0);
+    display.drawRect(4, 52, 120, 8, WHITE);
+    display.fillRect(4, 52, progressWidth, 8, WHITE);
+    
+    display.display();
+    delay(50);
+  }
+
+  if (triggerWiFiReset) {
+    Serial.println("WiFi Reset Triggered by user!");
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
+    display.setCursor(0, 15);
+    display.println("   Resetting WiFi...");
+    display.println("");
+    display.println("   Please wait...");
+    display.display();
+    
+    WiFiManager wm;
+    wm.resetSettings();
+    delay(2000);
+    
+    // Wait until user releases all buttons/touch to avoid re-triggering or skipping
+    while (digitalRead(TOUCH_PIN) == HIGH || digitalRead(BUTTON_PIN) == LOW || digitalRead(ONBOARD_BOOT_PIN) == LOW) {
+      delay(50);
+    }
+  }
+
+  // Connect via WiFiManager config portal
+  Serial.println("[Setup] Calling connectWiFi...");
+  connectWiFi();
+  Serial.println("[Setup] connectWiFi returned.");
+
+  // Wait 500ms for power rails to stabilize after Wi-Fi activation
+  delay(500);
+
+  // Re-initialize the OLED display to recover from any Wi-Fi power-up brownout/freeze.
+  // We first perform I2C bus recovery (clocking SCL pin) to clear any slave lockups.
+  Serial.println("[Setup] Re-initializing display post-WiFi...");
+  recoverI2C();
+  Wire.begin(0, 1);
+  Wire.setTimeOut(100);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    Serial.println("[Setup] OLED Re-init Failed!");
+  } else {
+    Serial.println("[Setup] OLED Re-init Success!");
+  }
+
+  // Load API Key and Device ID from flash preferences in a single block to prevent lockups
+  Serial.println("[Setup] Loading settings from flash preferences...");
+  preferences.begin("deskbuddy", false);
+  
+  deviceId = preferences.getString("deviceId", "");
+  if (deviceId.isEmpty()) {
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    char buf[12];
+    sprintf(buf, "db-%02X%02X", mac[4], mac[5]);
+    deviceId = String(buf);
+    preferences.putString("deviceId", deviceId);
+  }
+  Serial.printf("[Preferences] Active Device ID: %s\n", deviceId.c_str());
+
+  geminiApiKey = preferences.getString("apiKey", "AQ.Ab8RN6IO_s5pTZaB2bOUIXs5yKpu_SF6cBi0TaSo9dR4Gva2eA");
+  preferences.end();
+  Serial.printf("[Preferences] Active Gemini API Key: %s\n", geminiApiKey.c_str());
+
+  // Setup I2S Audio in Full Duplex Mode (Shared clocks)
+  Serial.println("[Setup] Calling setupI2SFullDuplex...");
+  setupI2SFullDuplex();
+  Serial.println("[Setup] setupI2SFullDuplex returned.");
+
+  // Show "DeskBuddy by Hari" name on screen during startup sound
+  Serial.println("[Setup] Displaying startup screen name...");
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+  
+  // Draw "DeskBuddy" at size 2 (108px wide)
+  display.setTextSize(2);
+  display.setCursor(10, 17);
+  display.print("DeskBuddy");
+  
+  // Draw "by Hari" at size 1 (42px wide)
+  display.setTextSize(1);
+  display.setCursor(43, 39);
+  display.print("by Hari");
+  
+  display.display();
+  Serial.println("[Setup] Display output pushed.");
+
+  // Play diagnostic test tone to verify physical speaker is working
+  Serial.println("[Setup] Calling playTestTone...");
+  playTestTone();
+  Serial.println("[Setup] playTestTone returned.");
+
+  // Re-initialize the OLED display to recover from any speaker power-up brownout/freeze.
+  // We first perform I2C bus recovery (clocking SCL pin) to clear any slave lockups.
+  Serial.println("[Setup] Re-initializing display post-startup sound...");
+  recoverI2C();
+  Wire.begin(0, 1);
+  Wire.setTimeOut(100);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    Serial.println("[Setup] OLED Post-Sound Re-init Failed!");
+  } else {
+    Serial.println("[Setup] OLED Post-Sound Re-init Success!");
+  }
+
+  // Draw eyes back after startup sound completes
+  Serial.println("[Setup] Drawing eyes...");
+  drawEyes(0, 0);
+  Serial.println("[Setup] Eyes drawn.");
+
+  // Connect to WebSocket Relay
+  Serial.println("[Setup] Configuring WebSocket connection...");
+  String wsUrl = "/esp32?device_id=" + deviceId;
+
+  // Check if a local relay server is running on the gateway IP on port 3000
+  IPAddress gateway = WiFi.gatewayIP();
+  WiFiClient client;
+  bool localServerFound = false;
+
+  Serial.printf("[Setup] Probing local relay server at %s:3000...\n", gateway.toString().c_str());
+  if (client.connect(gateway, 3000)) {
+    Serial.println("[Setup] Local relay server detected!");
+    localServerFound = true;
+    client.stop();
+  } else {
+    Serial.println("[Setup] No local relay server found. Using Cloud Relay fallback.");
+  }
+
+  if (localServerFound) {
+    // Local WebSocket connection (no SSL)
+    webSocket.begin(gateway, 3000, wsUrl.c_str());
+  } else {
+    // Cloud WebSocket connection (with SSL)
+    webSocket.beginSslWithCA(CLOUD_RELAY_HOST, CLOUD_RELAY_PORT, wsUrl.c_str());
+  }
+
+  webSocket.onEvent(onWebSocketEvent);
+  webSocket.setReconnectInterval(5000);
+  Serial.println("[Setup] WebSocket configured.");
+
+  // Show connected IP and Device ID on screen
+  if (WiFi.status() == WL_CONNECTED) {
+    display.clearDisplay();
+    display.setTextColor(WHITE);
+    
+    // Title
+    display.setTextSize(1);
+    display.setCursor(0, 0);
     display.println("Wi-Fi Connected!");
-    display.println("");
-    display.println("Pair on Dashboard:");
-    display.println(CLOUD_RELAY_HOST);
-    display.println("");
-    display.print("Device ID: ");
+    
+    // URL
+    display.setCursor(0, 10);
+    display.println("Go to Dashboard:");
+    display.println("harishnankj.github.io");
+    display.println("/deskbuddy");
+    
+    // Device ID Label
+    display.setCursor(0, 38);
+    display.println("Device ID:");
+    
+    // Device ID (Centered, size 2)
+    int textWidth = deviceId.length() * 12; // char width at size 2 is 12px
+    int xPos = (128 - textWidth) / 2;
+    if (xPos < 0) xPos = 0;
+    display.setCursor(xPos, 48);
     display.setTextSize(2);
-    display.println(deviceId);
+    display.print(deviceId);
+    
     display.display();
     delay(5000); // Display for 5 seconds
   }
@@ -605,6 +912,17 @@ void loop() {
 
   // Handle WebSocket client connections and processing
   webSocket.loop();
+
+  // Smoothly redraw eyes during scrolling animation (20 FPS)
+  if (aiReplyText.length() > 0 && millis() - aiReplyDisplayStart < 6000) {
+    static unsigned long lastScrollTime = 0;
+    if (millis() - lastScrollTime > 50) {
+      if (!sleeping && !breakScreen) {
+        drawEyes(pupilX, pupilY);
+      }
+      lastScrollTime = millis();
+    }
+  }
 
   if (millis() - lastTimePrint > 1000) {
     Serial.println(getTimeString());
@@ -625,7 +943,7 @@ void loop() {
   if (isRecording) {
     int16_t micBuffer[128];
     size_t bytesRead = 0;
-    esp_err_t result = i2s_read(I2S_NUM_1, micBuffer, sizeof(micBuffer), &bytesRead, 10);
+    esp_err_t result = i2s_read(I2S_NUM_0, micBuffer, sizeof(micBuffer), &bytesRead, 10);
     if (result == ESP_OK && bytesRead > 0) {
       webSocket.sendBIN((uint8_t*)micBuffer, bytesRead);
     }

@@ -323,6 +323,11 @@
     document.addEventListener('touchstart', unlockAudioContext);
 
     function initializeConnection() {
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        ws.close();
+        return;
+      }
+
       const deviceId = deviceIdInput.value.trim();
       let relayHost = relayHostInput.value.trim();
       
@@ -668,7 +673,12 @@
       if (savedRelayHost) {
         relayHostInput.value = savedRelayHost;
       } else {
-        relayHostInput.value = location.host;
+        const host = location.host;
+        if (!host || host.includes('github.io')) {
+          relayHostInput.value = "deskbuddy-relay.onrender.com";
+        } else {
+          relayHostInput.value = host;
+        }
       }
 
       const savedDeviceId = localStorage.getItem('deskbuddy_device_id');

@@ -328,7 +328,7 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
           if (msg.event === 'set_key') {
             // Forward to ESP32 so it saves it in preferences
             if (conn.esp32 && conn.esp32.readyState === 1) {
-              conn.esp32.send(message);
+              conn.esp32.send(message.toString());
             }
             conn.apiKey = msg.key;
           }
@@ -367,7 +367,7 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
           else {
             // General event forwarding (action trigger buttons, etc)
             if (conn.esp32 && conn.esp32.readyState === 1) {
-              conn.esp32.send(message);
+              conn.esp32.send(message.toString());
             }
           }
         } catch (e) {
