@@ -52,10 +52,20 @@ async function speakAloud(deviceId, text) {
 
   try {
     const googleUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(text)}`;
+    const options = {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://translate.google.com/'
+      }
+    };
     
     // Fetch MP3 from Google
     const mp3Buffer = await new Promise((resolve, reject) => {
-      https.get(googleUrl, (res) => {
+      https.get(googleUrl, options, (res) => {
+        if (res.statusCode !== 200) {
+          reject(new Error(`Google TTS returned status code ${res.statusCode}`));
+          return;
+        }
         const chunks = [];
         res.on('data', chunk => chunks.push(chunk));
         res.on('end', () => resolve(Buffer.concat(chunks)));
@@ -153,7 +163,17 @@ app.get('/tts', (req, res) => {
   const text = req.query.text;
   if (!text) return res.status(400).send('Missing text parameter');
   const googleUrl = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(text)}`;
-  https.get(googleUrl, (googleRes) => {
+  const options = {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Referer': 'https://translate.google.com/'
+    }
+  };
+  https.get(googleUrl, options, (googleRes) => {
+    if (googleRes.statusCode !== 200) {
+      res.status(googleRes.statusCode).send(`Google TTS error: ${googleRes.statusCode}`);
+      return;
+    }
     res.setHeader('Content-Type', googleRes.headers['content-type'] || 'audio/mpeg');
     res.setHeader('Access-Control-Allow-Origin', '*');
     googleRes.pipe(res);
