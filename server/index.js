@@ -77,10 +77,11 @@ async function speakAloud(deviceId, text) {
     const channel0 = channelData[0];
     if (!channel0) return;
 
-    // Convert to 16-bit PCM
+    // Convert to 16-bit PCM with a software gain multiplier
+    const softwareGain = 3.0; // Boost volume by 3x (~9.5 dB)
     const pcm16 = new Int16Array(channel0.length);
     for (let i = 0; i < channel0.length; i++) {
-      let val = Math.floor(channel0[i] * 32767);
+      let val = Math.floor(channel0[i] * 32767 * softwareGain);
       if (val > 32767) val = 32767;
       else if (val < -32768) val = -32768;
       pcm16[i] = val;
