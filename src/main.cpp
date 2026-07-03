@@ -22,6 +22,7 @@
 #define TOUCH_PIN 2
 #define BUTTON_PIN 3
 #define ONBOARD_BOOT_PIN 9
+#define VIBRATION_PIN 10
 
 // I2S Audio Pins (Shared clocks configuration)
 #define I2S_WS_PIN 4
@@ -86,6 +87,13 @@ enum RecordingState {
 RecordingState recState = REC_IDLE;
 unsigned long recPendingStart = 0;
 const unsigned long REC_DELAY_MS = 1200; // 1.2s delay for "listening" prompt to play
+
+// Vibration State & Controller
+unsigned long vibrationEnd = 0;
+void triggerVibration(int durationMs) {
+  digitalWrite(VIBRATION_PIN, HIGH);
+  vibrationEnd = millis() + durationMs;
+}
 
 
 // AI speech display variables
@@ -186,6 +194,7 @@ void onWebSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         if (doc.containsKey("reply")) {
           aiReplyText = doc["reply"].as<String>();
           aiReplyDisplayStart = millis();
+          triggerVibration(150); // Buzz for 150ms on new message
         }
         executeAction(actionType);
       }
@@ -214,15 +223,20 @@ void executeAction(String action) {
     digitalWrite(ledPin, LOW);
   } 
   else if (action == "happy") {
+    triggerVibration(120); // Quick haptic buzz
     drawHappyEyes();
     delay(700);
     drawEyes(pupilX, pupilY);
   } 
   else if (action == "wink") {
+    triggerVibration(120); // Quick haptic buzz
     drawWinkEyes();
     delay(1000);
     drawEyes(pupilX, pupilY);
   } 
+  else if (action == "vibrate") {
+    triggerVibration(500); // 500ms vibration
+  }
   else if (action == "blink") {
     blinkEyes();
   } 
@@ -685,6 +699,8 @@ void setup() {
   pinMode(ONBOARD_BOOT_PIN, INPUT_PULLUP);
   pinMode(ledPin, OUTPUT);
   digitalWrite(ledPin, LOW);
+  pinMode(VIBRATION_PIN, OUTPUT);
+  digitalWrite(VIBRATION_PIN, LOW);
 
   Wire.begin(0, 1);
   Wire.setTimeOut(100); // Prevent blocking lockups if OLED crashes
@@ -928,6 +944,12 @@ void setup() {
 void loop() {
   static unsigned long lastTimePrint = 0;
 
+  // Handle non-blocking vibration
+  if (vibrationEnd > 0 && millis() >= vibrationEnd) {
+    digitalWrite(VIBRATION_PIN, LOW);
+    vibrationEnd = 0;
+  }
+
   // Handle WebSocket client connections and processing
   webSocket.loop();
 
@@ -970,6 +992,16 @@ void loop() {
   // BREAK SCREEN
   if (breakScreen) {
     showBreakTime();
+    
+    // Buzz 3 times during the 5 second break screen
+    static unsigned long lastBuzzTime = 0;
+    if (millis() - breakStart < 3500) {
+      if (millis() - lastBuzzTime > 1200) {
+        triggerVibration(400);
+        lastBuzzTime = millis();
+      }
+    }
+    
     if (millis() - breakStart > 5000) {
       breakScreen = false;
       drawEyes(0, 0);
