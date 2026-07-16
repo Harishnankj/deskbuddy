@@ -315,7 +315,7 @@
         return;
       }
 
-      const deviceId = deviceIdInput.value.trim();
+      const deviceId = deviceIdInput.value.trim().toUpperCase();
       let relayHost = relayHostInput.value.trim();
       
       if (!relayHost) {

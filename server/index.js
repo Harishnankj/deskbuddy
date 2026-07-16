@@ -30,7 +30,7 @@ server.on('upgrade', (request, socket, head) => {
 
   if (pathname === '/esp32' || pathname === '/client' || pathname === '/agent') {
     wss.handleUpgrade(request, socket, head, (ws) => {
-      wss.emit('connection', ws, request, pathname, deviceId);
+      wss.emit('connection', ws, request, pathname, deviceId.toUpperCase());
     });
   } else {
     socket.destroy();

@@ -18,6 +18,8 @@ args.forEach(arg => {
   }
 });
 
+if (deviceId) deviceId = deviceId.toUpperCase();
+
 // Try to auto-load last pairing settings from dashboard if available
 if (!deviceId) {
   console.log('Usage: node pc_agent.js <device_id> [--host=<relay_host>]');
