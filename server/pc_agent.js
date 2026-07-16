@@ -1,6 +1,7 @@
 const WebSocket = require('ws');
 const { exec } = require('child_process');
 const path = require('path');
+const https = require('https');
 
 // Parse CLI arguments
 const args = process.argv.slice(2);
@@ -43,6 +44,62 @@ let ws = null;
 let intervalTimer = null;
 const scriptPath = path.join(__dirname, 'get_stats.ps1');
 
+let lastWeather = null;
+let lastWeatherFetchTime = 0;
+
+function fetchWeather() {
+  const now = Date.now();
+  // Fetch every 15 minutes (900000 ms)
+  if (lastWeather && (now - lastWeatherFetchTime < 900000)) {
+    return;
+  }
+
+  console.log('[PC Agent] Fetching weather from wttr.in...');
+  https.get('https://wttr.in/?format=j1', {
+    headers: { 'User-Agent': 'Mozilla/5.0' }
+  }, (res) => {
+    let data = '';
+    res.on('data', (chunk) => { data += chunk; });
+    res.on('end', () => {
+      try {
+        const json = JSON.parse(data);
+        const cond = json.current_condition && json.current_condition[0];
+        const area = json.nearest_area && json.nearest_area[0];
+        
+        if (cond) {
+          lastWeather = {
+            temp: parseInt(cond.temp_C) || 0,
+            desc: cond.weatherDesc && cond.weatherDesc[0] ? cond.weatherDesc[0].value : 'Unknown',
+            humidity: parseInt(cond.humidity) || 0,
+            location: area && area.areaName && area.areaName[0] ? area.areaName[0].value : 'Local'
+          };
+          lastWeatherFetchTime = Date.now();
+          console.log(`[PC Agent] Weather updated: ${lastWeather.location} ${lastWeather.temp}°C, ${lastWeather.desc}`);
+          
+          sendWeatherPayload();
+        }
+      } catch (err) {
+        console.error('[PC Agent] Failed to parse weather JSON:', err.message);
+      }
+    });
+  }).on('error', (err) => {
+    console.error('[PC Agent] Weather fetch error:', err.message);
+  });
+}
+
+function sendWeatherPayload() {
+  if (lastWeather && ws && ws.readyState === WebSocket.OPEN) {
+    const payload = {
+      event: 'weather',
+      temp: lastWeather.temp,
+      desc: lastWeather.desc,
+      humidity: lastWeather.humidity,
+      location: lastWeather.location
+    };
+    ws.send(JSON.stringify(payload));
+  }
+}
+
 function connect() {
   console.log(`[WebSocket] Connecting to ${wsUrl}...`);
   ws = new WebSocket(wsUrl);
@@ -50,6 +107,8 @@ function connect() {
   ws.on('open', () => {
     console.log('[WebSocket] Connected to DeskBuddy Relay server!');
     startPolling();
+    // Send cached weather after a short delay
+    setTimeout(sendWeatherPayload, 500);
   });
 
   ws.on('message', (data) => {
@@ -82,6 +141,8 @@ function startPolling() {
   intervalTimer = setInterval(queryAndSendStats, 3000);
   // Run once immediately
   queryAndSendStats();
+  // Fetch weather immediately
+  fetchWeather();
 }
 
 function stopPolling() {
@@ -120,6 +181,9 @@ function queryAndSendStats() {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(payload));
       }
+
+      // Check/refresh weather periodically
+      fetchWeather();
     } catch (parseErr) {
       console.error('[PC Agent] JSON Parse Error of stats output:', parseErr.message, 'Output:', stdout);
     }

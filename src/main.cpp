@@ -59,10 +59,18 @@ unsigned long lastPcStatsTime = 0;
 
 enum DisplayMode {
   MODE_BUDDY,
-  MODE_PC_STATS
+  MODE_PC_STATS,
+  MODE_WEATHER
 };
 DisplayMode currentMode = MODE_BUDDY;
 bool manualStatsMode = false;
+
+// Weather State
+int weatherTemp = 999;
+String weatherDesc = "";
+int weatherHumidity = 0;
+String weatherLocation = "";
+unsigned long lastWeatherTime = 0;
 
 // Auto-cycling timer state
 unsigned long lastModeCycleTime = 0;
@@ -122,6 +130,7 @@ void recoverI2C();
 void drawPCStats();
 void setupDeviceId();
 void drawFullscreenPomodoro();
+void drawWeather();
 
 // --- Display and Timer Routines ---
 
@@ -706,6 +715,18 @@ void onWebSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           drawPCStats();
         }
       }
+      else if (event == "weather") {
+        if (doc.containsKey("temp")) weatherTemp = doc["temp"];
+        if (doc.containsKey("desc")) weatherDesc = doc["desc"].as<String>();
+        if (doc.containsKey("humidity")) weatherHumidity = doc["humidity"];
+        if (doc.containsKey("location")) weatherLocation = doc["location"].as<String>();
+        lastWeatherTime = millis();
+        
+        // If we are currently in Weather Mode, redraw immediately to look super responsive
+        if (currentMode == MODE_WEATHER) {
+          drawWeather();
+        }
+      }
       break;
     }
     case WStype_BIN:
@@ -807,6 +828,62 @@ void drawPCStats() {
     int fillW = map(pcGpuUsage, 0, 100, 0, 126);
     display.fillRect(1, 58, fillW, 3, WHITE);
   }
+
+  display.display();
+}
+
+void drawWeather() {
+  display.clearDisplay();
+
+  // Top Bar: Time and Wi-Fi RSSI
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.print(getTimeString());
+
+  // Draw WiFi status on the right side of the top bar
+  drawWiFiStatus();
+
+  // Draw divider line under the top bar
+  display.drawLine(0, 10, 128, 10, WHITE);
+
+  // Check if weather is active (updated within the last 30 minutes)
+  bool weatherActive = (weatherTemp != 999 && (millis() - lastWeatherTime < 1800000));
+
+  if (!weatherActive) {
+    display.setCursor(0, 15);
+    display.println("     WEATHER");
+    display.println("");
+    display.println("  Waiting for PC");
+    display.println("   weather data...");
+    display.display();
+    return;
+  }
+
+  // Temp in center (Size 3)
+  String tempStr = String(weatherTemp) + " C";
+  int textWidth = tempStr.length() * 18; // Size 3 char is 18px wide
+  int xPos = (128 - textWidth) / 2;
+  display.setTextSize(3);
+  display.setCursor(xPos, 16);
+  display.print(tempStr);
+
+  // Location and Condition at bottom
+  display.setTextSize(1);
+  
+  // Location
+  String locStr = weatherLocation;
+  if (locStr.length() > 20) locStr = locStr.substring(0, 18) + "..";
+  int locWidth = locStr.length() * 6;
+  display.setCursor((128 - locWidth) / 2, 44);
+  display.print(locStr);
+
+  // Condition description & Humidity
+  String condStr = weatherDesc + " (H:" + String(weatherHumidity) + "%)";
+  if (condStr.length() > 20) condStr = condStr.substring(0, 18) + "..";
+  int condWidth = condStr.length() * 6;
+  display.setCursor((128 - condWidth) / 2, 54);
+  display.print(condStr);
 
   display.display();
 }
@@ -1016,6 +1093,17 @@ void loop() {
         Serial.println("[AutoCycle] Switched to PC Stats Mode");
       } 
       else if (currentMode == MODE_PC_STATS && currentCycleTime >= CYCLE_STATS_MS) {
+        if (weatherTemp != 999) {
+          currentMode = MODE_WEATHER;
+          Serial.println("[AutoCycle] Switched to Weather Mode");
+        } else {
+          currentMode = MODE_BUDDY;
+          Serial.println("[AutoCycle] Switched to Buddy Mode");
+          drawEyes(pupilX, pupilY);
+        }
+        lastModeCycleTime = millis();
+      }
+      else if (currentMode == MODE_WEATHER && currentCycleTime >= 10000) { // 10s for weather
         currentMode = MODE_BUDDY;
         lastModeCycleTime = millis();
         Serial.println("[AutoCycle] Switched to Buddy Mode");
@@ -1023,7 +1111,7 @@ void loop() {
       }
     } else {
       // If stats are stale, force back to Buddy Mode
-      if (currentMode == MODE_PC_STATS && (millis() - lastPcStatsTime >= 15000)) {
+      if ((currentMode == MODE_PC_STATS || currentMode == MODE_WEATHER) && (millis() - lastPcStatsTime >= 15000)) {
         currentMode = MODE_BUDDY;
         Serial.println("[AutoCycle] PC Stats stale. Reverted to Buddy Mode.");
         drawEyes(pupilX, pupilY);
@@ -1107,16 +1195,22 @@ void loop() {
       triggerVibration(100);
     }
     else if (buttonClickCount == 2) {
-      // Double press: Toggle PC Stats screen
-      currentMode = (currentMode == MODE_BUDDY) ? MODE_PC_STATS : MODE_BUDDY;
-      manualStatsMode = (currentMode == MODE_PC_STATS);
+      // Double press: Toggle display screens
+      if (weatherTemp != 999) {
+        currentMode = (DisplayMode)((currentMode + 1) % 3);
+      } else {
+        currentMode = (currentMode == MODE_BUDDY) ? MODE_PC_STATS : MODE_BUDDY;
+      }
+      manualStatsMode = (currentMode != MODE_BUDDY);
       lastModeCycleTime = millis(); // Reset cycle timer to prevent immediate cycling
       triggerVibration(150);
-      Serial.println("[Button] Double Press: Toggled PC Stats Display");
+      Serial.printf("[Button] Double Press: Toggled to screen mode %d\n", currentMode);
       if (currentMode == MODE_BUDDY) {
         drawEyes(pupilX, pupilY);
-      } else {
+      } else if (currentMode == MODE_PC_STATS) {
         drawPCStats();
+      } else {
+        drawWeather();
       }
     }
     buttonClickCount = 0;
@@ -1235,6 +1329,14 @@ void loop() {
     if (millis() - lastStatsDraw > 1000) {
       drawPCStats();
       lastStatsDraw = millis();
+    }
+  }
+  else if (currentMode == MODE_WEATHER) {
+    // Redraw Weather screen periodically
+    static unsigned long lastWeatherDraw = 0;
+    if (millis() - lastWeatherDraw > 2000) {
+      drawWeather();
+      lastWeatherDraw = millis();
     }
   } else {
     // RANDOM EYE MOVEMENT
