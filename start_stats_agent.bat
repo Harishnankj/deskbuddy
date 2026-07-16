@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 cd /d "c:\Users\HARI\OneDrive\ドキュメント\PlatformIO\Projects\deskbuddy"
 title DeskBuddy PC Stats Agent
 echo ===================================================

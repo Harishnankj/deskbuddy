@@ -507,6 +507,7 @@
 
     function downloadBatFile() {
       const batContent = `@echo off\r\n` +
+        `chcp 65001 >nul\r\n` +
         `cd /d "c:\\Users\\HARI\\OneDrive\\ドキュメント\\PlatformIO\\Projects\\deskbuddy"\r\n` +
         `title DeskBuddy PC Stats Agent\r\n` +
         `echo ===================================================\r\n` +
