@@ -57,6 +57,10 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
     if (client && client.readyState === 1) {
       client.send(JSON.stringify({ event: 'esp32_status', status: 'online' }));
     }
+    const agent = connections[deviceId].agent;
+    if (agent && agent.readyState === 1) {
+      agent.send(JSON.stringify({ event: 'esp32_status', status: 'online' }));
+    }
   } else if (pathname === '/client') {
     if (connections[deviceId].client) connections[deviceId].client.close();
     connections[deviceId].client = ws;
@@ -175,6 +179,10 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
         const client = connections[deviceId].client;
         if (client && client.readyState === 1) {
           client.send(JSON.stringify({ event: 'esp32_status', status: 'offline' }));
+        }
+        const agent = connections[deviceId].agent;
+        if (agent && agent.readyState === 1) {
+          agent.send(JSON.stringify({ event: 'esp32_status', status: 'offline' }));
         }
       }
     } else if (pathname === '/client') {

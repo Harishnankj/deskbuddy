@@ -190,6 +190,10 @@ function connect() {
       const msg = JSON.parse(data.toString());
       if (msg.event === 'esp32_status') {
         console.log(`[Status] DeskBuddy is now ${msg.status.toUpperCase()}`);
+        if (msg.status === 'online') {
+          console.log('[PC Agent] ESP32 came online, pushing weather update...');
+          sendWeatherPayload();
+        }
       }
     } catch (e) {
       // Ignored
