@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 title DeskBuddy PC Stats Agent
 echo ===================================================
 echo             DeskBuddy PC Stats Agent

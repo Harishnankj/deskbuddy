@@ -507,6 +507,7 @@
 
     function downloadBatFile() {
       const batContent = `@echo off\r\n` +
+        `cd /d "%~dp0"\r\n` +
         `title DeskBuddy PC Stats Agent\r\n` +
         `echo ===================================================\r\n` +
         `echo             DeskBuddy PC Stats Agent\r\n` +
