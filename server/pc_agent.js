@@ -2,6 +2,7 @@ const WebSocket = require('ws');
 const { exec } = require('child_process');
 const path = require('path');
 const https = require('https');
+const http = require('http');
 
 // Parse CLI arguments
 const args = process.argv.slice(2);
@@ -56,7 +57,8 @@ function fetchWeather() {
 
   console.log('[PC Agent] Fetching weather from wttr.in...');
   https.get('https://wttr.in/?format=j1', {
-    headers: { 'User-Agent': 'Mozilla/5.0' }
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+    rejectUnauthorized: false
   }, (res) => {
     let data = '';
     res.on('data', (chunk) => { data += chunk; });
@@ -77,13 +79,85 @@ function fetchWeather() {
           console.log(`[PC Agent] Weather updated: ${lastWeather.location} ${lastWeather.temp}°C, ${lastWeather.desc}`);
           
           sendWeatherPayload();
+        } else {
+          // If response parsing succeeded but condition was not found, call fallback
+          fetchWeatherFallback();
         }
       } catch (err) {
-        console.error('[PC Agent] Failed to parse weather JSON:', err.message);
+        console.warn('[PC Agent] Primary weather parse failed, switching to fallback...');
+        fetchWeatherFallback();
       }
     });
   }).on('error', (err) => {
-    console.error('[PC Agent] Weather fetch error:', err.message);
+    console.warn('[PC Agent] Primary weather fetch failed, switching to fallback...');
+    fetchWeatherFallback();
+  });
+}
+
+function fetchWeatherFallback() {
+  console.log('[PC Agent] Trying fallback weather lookup (ip-api.com + open-meteo)...');
+  
+  // 1. Get location coordinates via HTTP (no SSL issues!)
+  http.get('http://ip-api.com/json', (res) => {
+    let data = '';
+    res.on('data', (chunk) => { data += chunk; });
+    res.on('end', () => {
+      try {
+        const geo = JSON.parse(data);
+        if (geo && geo.status === 'success') {
+          const { lat, lon, city } = geo;
+          
+          // 2. Fetch weather for coordinates via HTTPS
+          https.get(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`, {
+            rejectUnauthorized: false
+          }, (wRes) => {
+            let wData = '';
+            wRes.on('data', (chunk) => { wData += chunk; });
+            wRes.on('end', () => {
+              try {
+                const wJson = JSON.parse(wData);
+                const cur = wJson.current_weather;
+                if (cur) {
+                  // Map WMO weather codes to readable descriptions
+                  const codeMap = {
+                    0: 'Clear sky',
+                    1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+                    45: 'Fog', 48: 'Depositing rime fog',
+                    51: 'Light drizzle', 53: 'Moderate drizzle', 55: 'Dense drizzle',
+                    61: 'Light rain', 63: 'Moderate rain', 65: 'Heavy rain',
+                    71: 'Light snow', 73: 'Moderate snow', 75: 'Heavy snow',
+                    80: 'Light rain showers', 81: 'Moderate rain showers', 82: 'Violent rain showers',
+                    95: 'Thunderstorm'
+                  };
+                  const desc = codeMap[cur.weathercode] || 'Clear';
+                  
+                  lastWeather = {
+                    temp: Math.round(cur.temperature) || 0,
+                    desc: desc,
+                    humidity: 65, // Standard placeholder humidity
+                    location: city || 'Local'
+                  };
+                  lastWeatherFetchTime = Date.now();
+                  console.log(`[PC Agent] Weather updated (fallback): ${lastWeather.location} ${lastWeather.temp}°C, ${lastWeather.desc}`);
+                  
+                  sendWeatherPayload();
+                }
+              } catch (parseErr) {
+                console.error('[PC Agent] Fallback weather parse error:', parseErr.message);
+              }
+            });
+          }).on('error', (err) => {
+            console.error('[PC Agent] Fallback weather fetch error:', err.message);
+          });
+        } else {
+          console.error('[PC Agent] Fallback geo lookup returned unsuccessful status:', geo ? geo.status : 'null');
+        }
+      } catch (parseErr) {
+        console.error('[PC Agent] Fallback geo location parse error:', parseErr.message);
+      }
+    });
+  }).on('error', (err) => {
+    console.error('[PC Agent] Fallback geo location fetch error:', err.message);
   });
 }
 
