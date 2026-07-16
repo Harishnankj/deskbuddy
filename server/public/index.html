@@ -261,7 +261,7 @@
           <p style="margin-bottom: 12px; opacity: 0.9;">
             Double-click the <code style="background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px; font-family: monospace;">start_stats_agent.bat</code> file at the root of your project folder.<br>
             If you need the file, download it here:
-            <a href="https://raw.githubusercontent.com/Harishnankj/deskbuddy/main/start_stats_agent.bat" download style="display: inline-block; background: var(--primary); color: #ffffff; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-size: 0.75rem; font-weight: 700; margin-top: 8px; box-shadow: 0 2px 10px rgba(0, 180, 216, 0.2); transition: opacity 0.2s;">📥 Download start_stats_agent.bat</a>
+            <button onclick="downloadBatFile()" class="btn-action" style="background: var(--primary); color: #ffffff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 0.75rem; font-weight: 700; margin-top: 8px; box-shadow: 0 2px 10px rgba(0, 180, 216, 0.2); cursor: pointer; transition: opacity 0.2s;">📥 Download start_stats_agent.bat</button>
           </p>
           
           <p style="margin-bottom: 6px; font-weight: 600;">Method 2 (Terminal):</p>
@@ -503,6 +503,52 @@
         event: 'action',
         type: type
       }));
+    }
+
+    function downloadBatFile() {
+      const batContent = `@echo off\r\n` +
+        `title DeskBuddy PC Stats Agent\r\n` +
+        `echo ===================================================\r\n` +
+        `echo             DeskBuddy PC Stats Agent\r\n` +
+        `echo ===================================================\r\n` +
+        `echo.\r\n` +
+        `set CONFIG_FILE=device_id.txt\r\n` +
+        `if not exist "%CONFIG_FILE%" (\r\n` +
+        `    echo [Setup] First time setup. Please enter your DeskBuddy Device ID.\r\n` +
+        `    echo (You can find this on your DeskBuddy screen on startup, e.g. db-A1B2)\r\n` +
+        `    echo.\r\n` +
+        `    set /p DEVICE_ID="Device ID: "\r\n` +
+        `    echo | set /p="%DEVICE_ID%" > "%CONFIG_FILE%"\r\n` +
+        `    echo.\r\n` +
+        `    echo Saved Device ID to %CONFIG_FILE%\r\n` +
+        `    echo.\r\n` +
+        `) else (\r\n` +
+        `    set /p DEVICE_ID=<"%CONFIG_FILE%"\r\n` +
+        `)\r\n` +
+        `for /f "tokens=*" %%a in ("%DEVICE_ID%") do set DEVICE_ID=%%a\r\n` +
+        `echo [Status] Connecting to DeskBuddy Device ID: %DEVICE_ID%\r\n` +
+        `echo [Status] Starting stats agent...\r\n` +
+        `echo.\r\n` +
+        `echo (You can minimize this window. Press Ctrl+C to close)\r\n` +
+        `echo.\r\n` +
+        `node server/pc_agent.js %DEVICE_ID% --host=deskbuddy-relay.onrender.com\r\n` +
+        `if %ERRORLEVEL% neq 0 (\r\n` +
+        `    echo.\r\n` +
+        `    echo [Error] Failed to start PC Stats Agent.\r\n` +
+        `    echo Please make sure Node.js is installed on your PC.\r\n` +
+        `    echo.\r\n` +
+        `    pause\r\n` +
+        `)\r\n`;
+
+      const blob = new Blob([batContent], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'start_stats_agent.bat';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     }
 
     window.onload = () => {
