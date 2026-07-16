@@ -48,7 +48,6 @@ WebSocketsClient webSocket;
 
 // Pairing and API keys
 String deviceId = "";
-String geminiApiKey = "";
 
 // PC Stats State
 int pcCpuUsage = -1;
@@ -529,7 +528,6 @@ void onWebSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
       // Register with relay server
       JsonDocument regDoc;
       regDoc["event"] = "register_esp32";
-      regDoc["apiKey"] = geminiApiKey;
       String regStr;
       serializeJson(regDoc, regStr);
       webSocket.sendTXT(regStr);
@@ -552,34 +550,10 @@ void onWebSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         resDoc["sleeping"] = sleeping;
         resDoc["pomodoroRunning"] = pomodoroRunning;
         resDoc["wifiRSSI"] = rssi;
-        resDoc["apiKey"] = geminiApiKey;
         
         String resStr;
         serializeJson(resDoc, resStr);
         webSocket.sendTXT(resStr);
-      }
-      else if (event == "set_key") {
-        String key = doc["key"];
-        preferences.begin("deskbuddy", false);
-        preferences.putString("apiKey", key);
-        preferences.end();
-        geminiApiKey = key;
-        
-        JsonDocument resDoc;
-        resDoc["event"] = "set_key_response";
-        resDoc["status"] = "ok";
-        
-        String resStr;
-        serializeJson(resDoc, resStr);
-        webSocket.sendTXT(resStr);
-        
-        // Re-register
-        JsonDocument regDoc;
-        regDoc["event"] = "register_esp32";
-        regDoc["apiKey"] = geminiApiKey;
-        String regStr;
-        serializeJson(regDoc, regStr);
-        webSocket.sendTXT(regStr);
       }
       else if (event == "action") {
         String actionType = doc["type"];
@@ -947,9 +921,6 @@ void setup() {
   }
 
   // WebSocket setup
-  preferences.begin("deskbuddy", true);
-  geminiApiKey = preferences.getString("apiKey", "");
-  preferences.end();
 
   webSocket.beginSSL(CLOUD_RELAY_HOST, CLOUD_RELAY_PORT, "/esp32?device_id=" + deviceId);
   webSocket.onEvent(onWebSocketEvent);
