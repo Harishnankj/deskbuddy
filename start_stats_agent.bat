@@ -1,5 +1,5 @@
 @echo off
-cd /d "%~dp0"
+cd /d "c:\Users\HARI\OneDrive\ドキュメント\PlatformIO\Projects\deskbuddy"
 title DeskBuddy PC Stats Agent
 echo ===================================================
 echo             DeskBuddy PC Stats Agent
