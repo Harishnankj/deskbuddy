@@ -121,6 +121,7 @@ void showBreakTime();
 void recoverI2C();
 void drawPCStats();
 void setupDeviceId();
+void drawFullscreenPomodoro();
 
 // --- Display and Timer Routines ---
 
@@ -161,17 +162,75 @@ void showBreakTime() {
   display.display();
 }
 
+void drawFullscreenPomodoro() {
+  display.clearDisplay();
+  
+  // Self-healing display check
+  static unsigned long lastOledCheck = 0;
+  if (millis() - lastOledCheck > 1000) {
+    lastOledCheck = millis();
+    Wire.beginTransmission(OLED_ADDR);
+    if (Wire.endTransmission() != 0) {
+      recoverI2C();
+      Wire.begin(0, 1);
+      Wire.setTimeOut(100);
+      display.begin(OLED_ADDR, true);
+      display.oled_command(SH110X_DISPLAYON);
+    }
+  }
+
+  unsigned long elapsed = millis() - pomodoroStart;
+  if (elapsed >= POMODORO_TIME) {
+    pomodoroRunning = false;
+    breakScreen = true;
+    breakStart = millis();
+    showBreakTime();
+    return;
+  }
+
+  unsigned long remaining = (POMODORO_TIME - elapsed) / 1000;
+  int mins = remaining / 60;
+  int secs = remaining % 60;
+
+  // Title: FOCUS
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(49, 4); // "FOCUS" is 5 chars * 6px = 30px. (128 - 30)/2 = 49.
+  display.print("FOCUS");
+
+  // Counter: MM:SS (Size 3)
+  display.setTextSize(3);
+  display.setCursor(19, 20); // 5 chars * 18px = 90px. (128 - 90)/2 = 19.
+  if (mins < 10) display.print("0");
+  display.print(mins);
+  display.print(":");
+  if (secs < 10) display.print("0");
+  display.print(secs);
+
+  // Progress Bar
+  display.drawRoundRect(14, 52, 100, 6, 3, WHITE);
+  float progress = (float)elapsed / (float)POMODORO_TIME;
+  int fillWidth = (int)(progress * 96.0);
+  if (fillWidth > 0) {
+    display.fillRoundRect(16, 54, fillWidth, 2, 1, WHITE);
+  }
+
+  // Draw WiFi status in top right corner (shifted down)
+  drawWiFiStatus();
+
+  display.display();
+}
+
 void drawEyes(int px, int py) {
   display.clearDisplay();
   drawTopInfo();
 
-  display.fillRoundRect(20, 24, 30, 24, 10, WHITE);
-  display.fillRoundRect(78, 24, 30, 24, 10, WHITE);
+  display.fillRoundRect(20, 30, 30, 24, 10, WHITE);
+  display.fillRoundRect(78, 30, 30, 24, 10, WHITE);
 
-  display.fillCircle(35 + px, 36 + py, 5, BLACK);
-  display.fillCircle(93 + px, 36 + py, 5, BLACK);
+  display.fillCircle(35 + px, 42 + py, 5, BLACK);
+  display.fillCircle(93 + px, 42 + py, 5, BLACK);
 
-  drawTimer();
   display.display();
 }
 
@@ -179,10 +238,9 @@ void drawClosedEyes() {
   display.clearDisplay();
   drawTopInfo();
 
-  display.drawLine(20, 30, 50, 30, WHITE);
-  display.drawLine(78, 30, 108, 30, WHITE);
+  display.drawLine(20, 36, 50, 36, WHITE);
+  display.drawLine(78, 36, 108, 36, WHITE);
 
-  drawTimer();
   display.display();
 }
 
@@ -190,13 +248,12 @@ void drawHappyEyes() {
   display.clearDisplay();
   drawTopInfo();
 
-  display.drawLine(20, 30, 35, 20, WHITE);
-  display.drawLine(35, 20, 50, 30, WHITE);
+  display.drawLine(20, 36, 35, 26, WHITE);
+  display.drawLine(35, 26, 50, 36, WHITE);
 
-  display.drawLine(78, 30, 93, 20, WHITE);
-  display.drawLine(93, 20, 108, 30, WHITE);
+  display.drawLine(78, 36, 93, 26, WHITE);
+  display.drawLine(93, 26, 108, 36, WHITE);
 
-  drawTimer();
   display.display();
 }
 
@@ -205,13 +262,12 @@ void drawWinkEyes() {
   drawTopInfo();
 
   // Left eye normal
-  display.fillRoundRect(20, 24, 30, 24, 10, WHITE);
-  display.fillCircle(35 + pupilX, 36 + pupilY, 5, BLACK);
+  display.fillRoundRect(20, 30, 30, 24, 10, WHITE);
+  display.fillCircle(35 + pupilX, 42 + pupilY, 5, BLACK);
 
   // Right eye winking/closed
-  display.drawLine(78, 36, 108, 36, WHITE);
+  display.drawLine(78, 42, 108, 42, WHITE);
 
-  drawTimer();
   display.display();
 }
 
@@ -220,16 +276,15 @@ void drawHeartEyes() {
   drawTopInfo();
 
   // Left Eye Heart
-  display.fillCircle(20 + 8, 24 + 8, 8, WHITE);
-  display.fillCircle(20 + 22, 24 + 8, 8, WHITE);
-  display.fillTriangle(20, 32, 50, 32, 35, 48, WHITE);
+  display.fillCircle(20 + 8, 30 + 8, 8, WHITE);
+  display.fillCircle(20 + 22, 30 + 8, 8, WHITE);
+  display.fillTriangle(20, 38, 50, 38, 35, 54, WHITE);
 
   // Right Eye Heart
-  display.fillCircle(78 + 8, 24 + 8, 8, WHITE);
-  display.fillCircle(78 + 22, 24 + 8, 8, WHITE);
-  display.fillTriangle(78, 32, 108, 32, 93, 48, WHITE);
+  display.fillCircle(78 + 8, 30 + 8, 8, WHITE);
+  display.fillCircle(78 + 22, 30 + 8, 8, WHITE);
+  display.fillTriangle(78, 38, 108, 38, 93, 54, WHITE);
 
-  drawTimer();
   display.display();
 }
 
@@ -238,18 +293,17 @@ void drawSadEyes() {
   drawTopInfo();
 
   // Base white rounded eyes
-  display.fillRoundRect(20, 24, 30, 24, 10, WHITE);
-  display.fillRoundRect(78, 24, 30, 24, 10, WHITE);
+  display.fillRoundRect(20, 30, 30, 24, 10, WHITE);
+  display.fillRoundRect(78, 30, 30, 24, 10, WHITE);
 
   // Pupils shifted down a bit
-  display.fillCircle(35, 39, 5, BLACK);
-  display.fillCircle(93, 39, 5, BLACK);
+  display.fillCircle(35, 45, 5, BLACK);
+  display.fillCircle(93, 45, 5, BLACK);
 
   // Draw slant covers to make eyes look sad
-  display.fillTriangle(20, 24, 38, 24, 20, 34, BLACK);
-  display.fillTriangle(108, 24, 90, 24, 108, 34, BLACK);
+  display.fillTriangle(20, 30, 38, 30, 20, 40, BLACK);
+  display.fillTriangle(108, 30, 90, 30, 108, 40, BLACK);
 
-  drawTimer();
   display.display();
 }
 
@@ -258,18 +312,17 @@ void drawAngryEyes() {
   drawTopInfo();
 
   // Base white rounded eyes
-  display.fillRoundRect(20, 24, 30, 24, 10, WHITE);
-  display.fillRoundRect(78, 24, 30, 24, 10, WHITE);
+  display.fillRoundRect(20, 30, 30, 24, 10, WHITE);
+  display.fillRoundRect(78, 30, 30, 24, 10, WHITE);
 
   // Pupils shifted towards the middle
-  display.fillCircle(38, 36, 5, BLACK);
-  display.fillCircle(90, 36, 5, BLACK);
+  display.fillCircle(38, 42, 5, BLACK);
+  display.fillCircle(90, 42, 5, BLACK);
 
   // Draw slant covers to make eyes look angry
-  display.fillTriangle(50, 24, 32, 24, 50, 34, BLACK);
-  display.fillTriangle(78, 24, 96, 24, 78, 34, BLACK);
+  display.fillTriangle(50, 30, 32, 30, 50, 40, BLACK);
+  display.fillTriangle(78, 30, 96, 30, 78, 40, BLACK);
 
-  drawTimer();
   display.display();
 }
 
@@ -278,14 +331,13 @@ void drawDizzyEyes() {
   drawTopInfo();
 
   // Left Eye X
-  display.drawLine(22, 26, 48, 46, WHITE);
-  display.drawLine(48, 26, 22, 46, WHITE);
+  display.drawLine(22, 32, 48, 52, WHITE);
+  display.drawLine(48, 32, 22, 52, WHITE);
 
   // Right Eye X
-  display.drawLine(80, 26, 106, 46, WHITE);
-  display.drawLine(106, 26, 80, 46, WHITE);
+  display.drawLine(80, 32, 106, 52, WHITE);
+  display.drawLine(106, 32, 80, 52, WHITE);
 
-  drawTimer();
   display.display();
 }
 
@@ -476,7 +528,7 @@ void drawTopInfo() {
   if (!pomodoroRunning) {
     display.setTextSize(2);
     display.setTextColor(WHITE);
-    display.setCursor(0, 0);
+    display.setCursor(0, 6);
     display.print(getTimeString());
   }
   drawWiFiStatus();
@@ -485,7 +537,7 @@ void drawTopInfo() {
 void drawWiFiStatus() {
   if (WiFi.status() != WL_CONNECTED) {
     display.setTextSize(1);
-    display.setCursor(112, 0);
+    display.setCursor(112, 6);
     display.print("X");
     return;
   }
@@ -499,7 +551,7 @@ void drawWiFiStatus() {
 
   int x = 112;
   for (int i = 0; i < bars; i++) {
-    display.fillRect(x + i * 4, 8 - (i * 2), 3, 2 + (i * 2), WHITE);
+    display.fillRect(x + i * 4, 14 - (i * 2), 3, 2 + (i * 2), WHITE);
   }
 }
 
@@ -627,9 +679,11 @@ void onWebSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           if (!pomodoroRunning) {
             pomodoroRunning = true;
             pomodoroStart = millis();
+            drawFullscreenPomodoro();
             Serial.println("Pomodoro Started");
           } else {
             pomodoroRunning = false;
+            if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
             Serial.println("Pomodoro Stopped");
           }
           triggerVibration(100);
@@ -1030,6 +1084,7 @@ void loop() {
     pomodoroRunning = false;
     breakScreen = false;
     pomodoroStart = 0;
+    if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
     Serial.println("Pomodoro Reset via Long Press");
     triggerVibration(300);
   }
@@ -1043,9 +1098,11 @@ void loop() {
       if (!pomodoroRunning) {
         pomodoroRunning = true;
         pomodoroStart = millis();
+        drawFullscreenPomodoro();
         Serial.println("Pomodoro Started");
       } else {
         pomodoroRunning = false;
+        if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
         Serial.println("Pomodoro Stopped");
       }
       triggerVibration(100);
@@ -1177,7 +1234,15 @@ void loop() {
   }
 
   // Draw appropriate screen state
-  if (currentMode == MODE_PC_STATS) {
+  if (pomodoroRunning) {
+    // Redraw Fullscreen Pomodoro screen periodically
+    static unsigned long lastPomoDraw = 0;
+    if (millis() - lastPomoDraw > 500) {
+      drawFullscreenPomodoro();
+      lastPomoDraw = millis();
+    }
+  }
+  else if (currentMode == MODE_PC_STATS) {
     // Redraw PC Stats screen periodically
     static unsigned long lastStatsDraw = 0;
     if (millis() - lastStatsDraw > 1000) {

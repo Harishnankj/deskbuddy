@@ -39,7 +39,7 @@ server.on('upgrade', (request, socket, head) => {
 
 wss.on('connection', (ws, request, pathname, deviceId) => {
   console.log(`[Connection] ${pathname.substring(1).toUpperCase()} joined. Device ID: ${deviceId}`);
-  
+
   if (!connections[deviceId]) {
     connections[deviceId] = {
       esp32: null,
@@ -52,7 +52,7 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
   if (pathname === '/esp32') {
     if (connections[deviceId].esp32) connections[deviceId].esp32.close();
     connections[deviceId].esp32 = ws;
-    
+
     const client = connections[deviceId].client;
     if (client && client.readyState === 1) {
       client.send(JSON.stringify({ event: 'esp32_status', status: 'online' }));
@@ -60,16 +60,16 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
   } else if (pathname === '/client') {
     if (connections[deviceId].client) connections[deviceId].client.close();
     connections[deviceId].client = ws;
-    
+
     const isEspOnline = connections[deviceId].esp32 && connections[deviceId].esp32.readyState === 1;
     ws.send(JSON.stringify({ event: 'esp32_status', status: isEspOnline ? 'online' : 'offline' }));
-    
+
     const isAgentOnline = connections[deviceId].agent && connections[deviceId].agent.readyState === 1;
     ws.send(JSON.stringify({ event: 'agent_status', status: isAgentOnline ? 'online' : 'offline' }));
   } else if (pathname === '/agent') {
     if (connections[deviceId].agent) connections[deviceId].agent.close();
     connections[deviceId].agent = ws;
-    
+
     const client = connections[deviceId].client;
     if (client && client.readyState === 1) {
       client.send(JSON.stringify({ event: 'agent_status', status: 'online' }));
@@ -85,7 +85,7 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
         try {
           const msg = JSON.parse(message.toString());
           console.log(`[ESP32 Event] device=${deviceId} event=${msg.event}`);
-          
+
           if (msg.event === 'get_status' || msg.event === 'status') {
             if (conn.client && conn.client.readyState === 1) {
               conn.client.send(message.toString());
@@ -100,11 +100,11 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
         try {
           const msg = JSON.parse(message.toString());
           console.log(`[Client Event] device=${deviceId} event=${msg.event}`);
-          
+
           if (msg.event === 'start_local_agent') {
             const hostHeader = request.headers.host || '';
             const isLocal = hostHeader.includes('localhost') || hostHeader.includes('127.0.0.1') || hostHeader.includes('192.168.') || hostHeader.includes('10.');
-            
+
             if (isLocal) {
               const isAgentOnline = conn.agent && conn.agent.readyState === 1;
               if (isAgentOnline) {
@@ -113,13 +113,13 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
                 console.log('[Server] Spawning local stats agent...');
                 const { spawn } = require('child_process');
                 const path = require('path');
-                
+
                 conn.agentProcess = spawn('node', [path.join(__dirname, 'pc_agent.js'), deviceId, `--host=${hostHeader}`], {
                   detached: true,
                   stdio: 'ignore'
                 });
                 conn.agentProcess.unref();
-                
+
                 ws.send(JSON.stringify({ event: 'local_agent_started', status: 'success' }));
               }
             } else {
@@ -190,7 +190,7 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
         }
       }
     }
-    
+
     if (!connections[deviceId].esp32 && !connections[deviceId].client && !connections[deviceId].agent) {
       delete connections[deviceId];
     }
