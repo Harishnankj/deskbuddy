@@ -9,6 +9,9 @@ const port = process.env.PORT || 3000;
 // Serve static dashboard files
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Map of device_id -> connection metadata
+const connections = {};
+
 const server = app.listen(port, () => {
   console.log(`DeskBuddy Cloud Relay server running on port ${port}`);
 });
