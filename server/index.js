@@ -51,24 +51,24 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
     connections[deviceId].esp32 = ws;
     
     const client = connections[deviceId].client;
-    if (client && client.readyState === ws.OPEN) {
+    if (client && client.readyState === 1) {
       client.send(JSON.stringify({ event: 'esp32_status', status: 'online' }));
     }
   } else if (pathname === '/client') {
     if (connections[deviceId].client) connections[deviceId].client.close();
     connections[deviceId].client = ws;
     
-    const isEspOnline = connections[deviceId].esp32 && connections[deviceId].esp32.readyState === ws.OPEN;
+    const isEspOnline = connections[deviceId].esp32 && connections[deviceId].esp32.readyState === 1;
     ws.send(JSON.stringify({ event: 'esp32_status', status: isEspOnline ? 'online' : 'offline' }));
     
-    const isAgentOnline = connections[deviceId].agent && connections[deviceId].agent.readyState === ws.OPEN;
+    const isAgentOnline = connections[deviceId].agent && connections[deviceId].agent.readyState === 1;
     ws.send(JSON.stringify({ event: 'agent_status', status: isAgentOnline ? 'online' : 'offline' }));
   } else if (pathname === '/agent') {
     if (connections[deviceId].agent) connections[deviceId].agent.close();
     connections[deviceId].agent = ws;
     
     const client = connections[deviceId].client;
-    if (client && client.readyState === ws.OPEN) {
+    if (client && client.readyState === 1) {
       client.send(JSON.stringify({ event: 'agent_status', status: 'online' }));
     }
   }
@@ -170,7 +170,7 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
       if (connections[deviceId].esp32 === ws) {
         connections[deviceId].esp32 = null;
         const client = connections[deviceId].client;
-        if (client && client.readyState === ws.OPEN) {
+        if (client && client.readyState === 1) {
           client.send(JSON.stringify({ event: 'esp32_status', status: 'offline' }));
         }
       }
@@ -182,7 +182,7 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
       if (connections[deviceId].agent === ws) {
         connections[deviceId].agent = null;
         const client = connections[deviceId].client;
-        if (client && client.readyState === ws.OPEN) {
+        if (client && client.readyState === 1) {
           client.send(JSON.stringify({ event: 'agent_status', status: 'offline' }));
         }
       }
