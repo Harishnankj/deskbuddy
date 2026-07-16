@@ -153,7 +153,7 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
     } else if (pathname === '/agent') {
       try {
         const msg = JSON.parse(message.toString());
-        if (msg.event === 'pc_stats') {
+        if (msg.event === 'pc_stats' || msg.event === 'weather') {
           if (conn.esp32 && conn.esp32.readyState === 1) {
             conn.esp32.send(message.toString());
           }
