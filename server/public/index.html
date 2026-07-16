@@ -208,7 +208,7 @@
   <div class="container">
     <header>
       <h1 id="main-title">DeskBuddy Cloud</h1>
-      <p class="subtitle">Remote Gemini AI Controller</p>
+      <p class="subtitle">Remote Companion Controller</p>
     </header>
 
     <!-- Connection Configuration Card -->
@@ -226,9 +226,9 @@
       </div>
     </div>
 
-    <!-- Status and Settings Card -->
+    <!-- Status Card -->
     <div class="card" style="opacity: 0.5; pointer-events: none;" id="status-settings-card">
-      <div class="status-bar">
+      <div class="status-bar" style="margin-bottom: 0; border-bottom: none;">
         <span id="stat-time">Time: --:--</span>
         <span id="stat-sleep">State: Offline</span>
         <span id="stat-pomo">Pomodoro: Off</span>
@@ -237,25 +237,6 @@
           <span class="status-indicator" id="stat-ws-dot"></span>
           <span id="stat-ws" style="color: var(--danger);">ESP32: Offline</span>
         </span>
-      </div>
-      
-      <div class="form-group">
-        <label for="api-key">Gemini API Key</label>
-        <div class="input-row">
-          <input type="text" id="api-key" placeholder="Enter Gemini API key (starts with AIzaSy)" autocomplete="off">
-          <button id="save-key-btn" onclick="saveKey()">Save Key</button>
-        </div>
-      </div>
-      <div class="form-group" style="margin-top: 15px;">
-        <label for="model-select">Gemini Model</label>
-        <select id="model-select" onchange="localStorage.setItem('geminiModel', this.value)">
-          <option value="gemini-2.5-flash" selected>Gemini 2.5 Flash (Recommended)</option>
-          <option value="gemini-2.5-pro">Gemini 2.5 Pro (High Reasoning)</option>
-        </select>
-      </div>
-      <div class="form-group" style="margin-top: 15px; display: flex; flex-direction: row; justify-content: space-between; align-items: center; background: rgba(0, 0, 0, 0.1); border: 1px solid var(--glass-border); border-radius: 8px; padding: 12px;">
-        <label for="handsfree-toggle" style="cursor: pointer; margin-bottom: 0;">Hands-Free "Buddy" Wake Word</label>
-        <input type="checkbox" id="handsfree-toggle" onchange="toggleHandsFree(this.checked)" style="width: auto; cursor: pointer; scale: 1.3;">
       </div>
     </div>
 
@@ -292,68 +273,37 @@
       </div>
     </div>
 
-    <!-- Chat Card -->
-    <div class="card" style="opacity: 0.5; pointer-events: none;" id="chat-card">
-      <label style="margin-bottom: 8px; display: block;" id="mic-status-label">Talk to DeskBuddy (Tap Touch Sensor to Speak)</label>
-      <div class="chat-box" id="chat-container">
-        <div class="message ai">Pair your DeskBuddy above to begin!</div>
-      </div>
-      <div class="input-row">
-        <input type="text" id="chat-input" placeholder="Type a message..." onkeydown="if(event.key === 'Enter') sendMessage()">
-        <button id="send-msg-btn" onclick="sendMessage()">Send</button>
-      </div>
-    </div>
-
     <!-- Actions Card -->
     <div class="card" style="opacity: 0.5; pointer-events: none;" id="actions-card">
-      <label style="margin-bottom: 12px; display: block;">Direct Animation Triggers</label>
-      <div class="actions-grid">
-        <button class="btn-action" id="act-wink" onclick="triggerAction('wink')"> 😉 Wink</button>
-        <button class="btn-action" id="act-happy" onclick="triggerAction('happy')"> 😄 Happy Eyes</button>
-        <button class="btn-action" id="act-blink" onclick="triggerAction('blink')"> 👁️ Blink</button>
-        <button class="btn-action" id="act-pomo" onclick="triggerAction('start_pomodoro')"> ⏱️ Toggle Pomodoro</button>
-        <button class="btn-action" id="act-sleep" onclick="triggerAction('sleep')"> 😴 Go to Sleep</button>
-        <button class="btn-action" id="act-wake" onclick="triggerAction('wake')"> ☀️ Wake Up</button>
+      <label style="margin-bottom: 12px; display: block; font-weight: 700; color: var(--text-highlight);">Direct Control Triggers</label>
+      
+      <div style="margin-bottom: 15px;">
+        <p style="font-size: 0.8rem; font-weight: 600; color: var(--primary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Expressions</p>
+        <div class="actions-grid" style="grid-template-columns: repeat(3, 1fr); gap: 10px;">
+          <button class="btn-action" id="act-wink" onclick="triggerAction('wink')">😉 Wink</button>
+          <button class="btn-action" id="act-happy" onclick="triggerAction('happy')">😄 Happy</button>
+          <button class="btn-action" id="act-heart" onclick="triggerAction('heart')">😍 Hearts</button>
+          <button class="btn-action" id="act-sad" onclick="triggerAction('sad')">😢 Sad</button>
+          <button class="btn-action" id="act-angry" onclick="triggerAction('angry')">😠 Angry</button>
+          <button class="btn-action" id="act-dizzy" onclick="triggerAction('dizzy')">😵 Dizzy</button>
+        </div>
       </div>
-    </div>
-  </div>
 
-  <script>
-    const chatContainer = document.getElementById('chat-container');
-    const chatInput = document.getElementById('chat-input');
-    const apiKeyInput = document.getElementById('api-key');
-    const statusLabel = document.getElementById('mic-status-label');
+      <div>
+        <p style="font-size: 0.8rem; font-weight: 600; color: var(--primary); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Controls</p>
+        <div class="actions-grid" style="grid-template-columns: repeat(2, 1fr); gap: 10px;">
+          <button class="btn-action" id="act-blink" onclick="triggerAction('blink')">👁️ Blink Eyes</button>
+          <button class="btn-action" id="act-vibrate" onclick="triggerAction('vibrate')">📳 Buzz Motor</button>
+          <button class="btn-action" id="act-pomo" onclick="triggerAction('toggle_pomodoro')">⏱️ Toggle Pomodoro</button>
+          <button class="btn-action" id="act-sleep" onclick="triggerAction('sleep')">😴 Go to Sleep</button>
+          <button class="btn-action" id="act-wake" onclick="triggerAction('wake')">☀️ Wake Up</button>
+          <script>
     const deviceIdInput = document.getElementById('device-id');
     const relayHostInput = document.getElementById('relay-host');
     const connectBtn = document.getElementById('connect-btn');
 
     let ws;
-    let isRecording = false;
-    let audioChunks = [];
-    let activeAiBubble = null;
-    let audioCtx = null;
-
-    let isHandsFreeActive = false;
-    let isSpeakingOrProcessing = false;
-    let recognition = null;
-    let autoStopTimer = null;
     let pingInterval = null;
-
-    function unlockAudioContext() {
-      if (!audioCtx) {
-        try {
-          audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-        } catch (e) {
-          console.warn("AudioContext with sampleRate not supported, falling back to default.", e);
-          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-      }
-      if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
-      }
-    }
-    document.addEventListener('click', unlockAudioContext);
-    document.addEventListener('touchstart', unlockAudioContext);
 
     function initializeConnection() {
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
@@ -484,60 +434,6 @@
           }
           else if (msg.event === 'status') {
             updateStatus(msg);
-            if (msg.apiKey) {
-              apiKeyInput.value = msg.apiKey;
-              apiKeyInput.placeholder = "API Key saved (hidden)";
-            }
-          }
-          else if (msg.event === 'set_key_response') {
-            if (msg.status === 'ok') {
-              alert("Gemini API Key saved successfully on ESP32!");
-              apiKeyInput.placeholder = "API Key saved";
-            } else {
-              alert("Failed to save API key on ESP32.");
-            }
-          }
-          else if (msg.event === 'start_recording') {
-            isSpeakingOrProcessing = true;
-            pauseWakeWordListener();
-            statusLabel.innerText = "🎤 Listening to your voice...";
-            statusLabel.style.color = "var(--danger)";
-            if (!activeAiBubble) {
-              activeAiBubble = appendMessage("Listening...", 'ai');
-            }
-            if (isHandsFreeActive) {
-              if (autoStopTimer) clearTimeout(autoStopTimer);
-              autoStopTimer = setTimeout(autoStopRecordingByVoice, 5000);
-            }
-          } 
-          else if (msg.event === 'stop_recording') {
-            isSpeakingOrProcessing = true;
-            pauseWakeWordListener();
-            if (autoStopTimer) clearTimeout(autoStopTimer);
-            statusLabel.innerText = "⚙️ Processing Voice Command...";
-            statusLabel.style.color = "var(--primary)";
-            if (activeAiBubble) activeAiBubble.innerText = "Thinking...";
-          }
-          else if (msg.event === 'chat_msg') {
-            if (msg.sender === 'user') {
-              const lastMsg = chatContainer.lastElementChild;
-              if (!lastMsg || lastMsg.className !== 'message user' || lastMsg.innerText !== msg.text) {
-                appendMessage(msg.text, 'user');
-              }
-            } else if (msg.sender === 'ai') {
-              if (activeAiBubble) {
-                activeAiBubble.innerText = msg.text;
-                activeAiBubble = null;
-              } else {
-                appendMessage(msg.text, 'ai');
-              }
-              
-              // Reset status label
-              statusLabel.innerText = "Talk to DeskBuddy (Tap Touch Sensor to Speak)";
-              statusLabel.style.color = "";
-              isSpeakingOrProcessing = false;
-              startWakeWordListener();
-            }
           }
         }
       };
@@ -548,8 +444,6 @@
       document.getElementById('status-settings-card').style.pointerEvents = "auto";
       document.getElementById('pc-stats-card').style.opacity = "1";
       document.getElementById('pc-stats-card').style.pointerEvents = "auto";
-      document.getElementById('chat-card').style.opacity = "1";
-      document.getElementById('chat-card').style.pointerEvents = "auto";
       document.getElementById('actions-card').style.opacity = "1";
       document.getElementById('actions-card').style.pointerEvents = "auto";
     }
@@ -559,8 +453,6 @@
       document.getElementById('status-settings-card').style.pointerEvents = "none";
       document.getElementById('pc-stats-card').style.opacity = "0.5";
       document.getElementById('pc-stats-card').style.pointerEvents = "none";
-      document.getElementById('chat-card').style.opacity = "0.5";
-      document.getElementById('chat-card').style.pointerEvents = "none";
       document.getElementById('actions-card').style.opacity = "0.5";
       document.getElementById('actions-card').style.pointerEvents = "none";
       
@@ -589,16 +481,6 @@
       if (document.getElementById('stat-wifi')) document.getElementById('stat-wifi').innerText = "RSSI: " + data.wifiRSSI + " dBm";
     }
 
-    function saveKey() {
-      const key = apiKeyInput.value.trim();
-      if(!key) return alert("Please enter an API Key!");
-      
-      ws.send(JSON.stringify({
-        event: 'set_key',
-        key: key
-      }));
-    }
-
     function toggleLocalAgent() {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       const statAgent = document.getElementById('stat-agent');
@@ -611,148 +493,12 @@
       }
     }
 
-    async function sendMessage() {
-      const msg = chatInput.value.trim();
-      if(!msg) return;
-
-      appendMessage(msg, 'user');
-      chatInput.value = "";
-
-      activeAiBubble = appendMessage("Thinking...", 'ai');
-      isSpeakingOrProcessing = true;
-      pauseWakeWordListener();
-
-      ws.send(JSON.stringify({
-        event: 'text_message',
-        text: msg
-      }));
-    }
-
     function triggerAction(type) {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       ws.send(JSON.stringify({
         event: 'action',
         type: type
       }));
-    }
-
-    function appendMessage(text, sender) {
-      const div = document.createElement('div');
-      div.className = `message ${sender}`;
-      div.innerText = text;
-      chatContainer.appendChild(div);
-      chatContainer.scrollTop = chatContainer.scrollHeight;
-      return div;
-    }
-
-    function toggleHandsFree(enabled) {
-      isHandsFreeActive = enabled;
-      localStorage.setItem('handsfreeEnabled', enabled ? 'true' : 'false');
-      if (enabled) {
-        initSpeechRecognition();
-      } else {
-        stopSpeechRecognition();
-      }
-    }
-
-    function initSpeechRecognition() {
-      if (recognition) return;
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRecognition) {
-        alert("Speech Recognition not supported in this browser. Please use Chrome.");
-        document.getElementById('handsfree-toggle').checked = false;
-        isHandsFreeActive = false;
-        localStorage.setItem('handsfreeEnabled', 'false');
-        return;
-      }
-      
-      recognition = new SpeechRecognition();
-      recognition.continuous = true;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
-      
-      recognition.onstart = () => {
-        console.log("Wake word listener started.");
-      };
-      
-      recognition.onend = () => {
-        console.log("Wake word listener stopped.");
-        if (isHandsFreeActive && !isSpeakingOrProcessing && !isRecording) {
-          try {
-            recognition.start();
-          } catch(e) {
-            console.error("Restart recognition failed:", e);
-          }
-        }
-      };
-      
-      recognition.onerror = (e) => {
-        console.error("Speech recognition error:", e.error);
-        if (e.error === 'not-allowed') {
-          alert("Microphone access denied. Please allow microphone access to run Hands-Free mode.");
-          document.getElementById('handsfree-toggle').checked = false;
-          isHandsFreeActive = false;
-        }
-      };
-      
-      recognition.onresult = (event) => {
-        const result = event.results[event.results.length - 1];
-        if (result.isFinal) {
-          const transcript = result[0].transcript.toLowerCase().trim();
-          console.log("Heard:", transcript);
-          if (transcript.includes("buddy")) {
-            console.log("Wake word detected!");
-            triggerVoiceGreeting();
-          }
-        }
-      };
-
-      try {
-        recognition.start();
-      } catch(e) {
-        console.error("Start recognition failed:", e);
-      }
-    }
-
-    function stopSpeechRecognition() {
-      if (recognition) {
-        try {
-          recognition.abort();
-        } catch(e) {}
-        recognition = null;
-      }
-    }
-
-    function startWakeWordListener() {
-      if (!isHandsFreeActive) return;
-      if (!recognition) {
-        initSpeechRecognition();
-      } else {
-        try {
-          recognition.start();
-        } catch(e) {}
-      }
-    }
-
-    function pauseWakeWordListener() {
-      if (recognition) {
-        try {
-          recognition.abort();
-        } catch(e) {}
-      }
-    }
-
-    function triggerVoiceGreeting() {
-      isSpeakingOrProcessing = true;
-      pauseWakeWordListener();
-      if (autoStopTimer) clearTimeout(autoStopTimer);
-      
-      ws.send(JSON.stringify({ event: 'action', type: 'trigger_voice' }));
-    }
-
-    function autoStopRecordingByVoice() {
-      console.log("Voice timeout reached. Auto-stopping...");
-      ws.send(JSON.stringify({ event: 'action', type: 'stop_voice' }));
     }
 
     window.onload = () => {
@@ -773,17 +519,6 @@
       if (savedDeviceId) {
         deviceIdInput.value = savedDeviceId;
         initializeConnection();
-      }
-
-      const savedModel = localStorage.getItem('geminiModel');
-      if (savedModel) {
-        document.getElementById('model-select').value = savedModel;
-      }
-      const savedHandsFree = localStorage.getItem('handsfreeEnabled');
-      if (savedHandsFree === 'true') {
-        document.getElementById('handsfree-toggle').checked = true;
-        isHandsFreeActive = true;
-        initSpeechRecognition();
       }
     };
   </script>

@@ -597,6 +597,72 @@ void onWebSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           triggerVibration(100);
           drawPCStats();
         }
+        else if (actionType == "wink") {
+          triggerVibration(100);
+          drawWinkEyes();
+          delay(1500);
+          if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
+        }
+        else if (actionType == "happy") {
+          triggerVibration(100);
+          drawHappyEyes();
+          delay(1500);
+          if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
+        }
+        else if (actionType == "blink") {
+          triggerVibration(100);
+          blinkEyes();
+        }
+        else if (actionType == "heart") {
+          triggerVibration(100);
+          drawHeartEyes();
+          delay(1500);
+          if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
+        }
+        else if (actionType == "sad") {
+          triggerVibration(100);
+          drawSadEyes();
+          delay(1500);
+          if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
+        }
+        else if (actionType == "angry") {
+          triggerVibration(100);
+          drawAngryEyes();
+          delay(1500);
+          if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
+        }
+        else if (actionType == "dizzy") {
+          triggerVibration(100);
+          drawDizzyEyes();
+          delay(1500);
+          if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
+        }
+        else if (actionType == "sleep") {
+          if (!sleeping) {
+            sleepAnimation();
+            sleeping = true;
+          }
+        }
+        else if (actionType == "wake") {
+          if (sleeping) {
+            sleeping = false;
+            wakeAnimation();
+          }
+        }
+        else if (actionType == "toggle_pomodoro" || actionType == "start_pomodoro") {
+          if (!pomodoroRunning) {
+            pomodoroRunning = true;
+            pomodoroStart = millis();
+            Serial.println("Pomodoro Started");
+          } else {
+            pomodoroRunning = false;
+            Serial.println("Pomodoro Stopped");
+          }
+          triggerVibration(100);
+        }
+        else if (actionType == "vibrate") {
+          triggerVibration(400);
+        }
       }
       else if (event == "pc_stats") {
         // Parse PC Stats!
