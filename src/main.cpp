@@ -225,11 +225,11 @@ void drawEyes(int px, int py) {
   display.clearDisplay();
   drawTopInfo();
 
-  display.fillRoundRect(20, 30, 30, 24, 10, WHITE);
-  display.fillRoundRect(78, 30, 30, 24, 10, WHITE);
+  display.fillRoundRect(20, 36, 30, 24, 10, WHITE);
+  display.fillRoundRect(78, 36, 30, 24, 10, WHITE);
 
-  display.fillCircle(35 + px, 42 + py, 5, BLACK);
-  display.fillCircle(93 + px, 42 + py, 5, BLACK);
+  display.fillCircle(35 + px, 48 + py, 5, BLACK);
+  display.fillCircle(93 + px, 48 + py, 5, BLACK);
 
   display.display();
 }
@@ -238,8 +238,8 @@ void drawClosedEyes() {
   display.clearDisplay();
   drawTopInfo();
 
-  display.drawLine(20, 36, 50, 36, WHITE);
-  display.drawLine(78, 36, 108, 36, WHITE);
+  display.drawLine(20, 42, 50, 42, WHITE);
+  display.drawLine(78, 42, 108, 42, WHITE);
 
   display.display();
 }
@@ -248,11 +248,11 @@ void drawHappyEyes() {
   display.clearDisplay();
   drawTopInfo();
 
-  display.drawLine(20, 36, 35, 26, WHITE);
-  display.drawLine(35, 26, 50, 36, WHITE);
+  display.drawLine(20, 42, 35, 32, WHITE);
+  display.drawLine(35, 32, 50, 42, WHITE);
 
-  display.drawLine(78, 36, 93, 26, WHITE);
-  display.drawLine(93, 26, 108, 36, WHITE);
+  display.drawLine(78, 42, 93, 32, WHITE);
+  display.drawLine(93, 32, 108, 42, WHITE);
 
   display.display();
 }
@@ -262,11 +262,11 @@ void drawWinkEyes() {
   drawTopInfo();
 
   // Left eye normal
-  display.fillRoundRect(20, 30, 30, 24, 10, WHITE);
-  display.fillCircle(35 + pupilX, 42 + pupilY, 5, BLACK);
+  display.fillRoundRect(20, 36, 30, 24, 10, WHITE);
+  display.fillCircle(35 + pupilX, 48 + pupilY, 5, BLACK);
 
   // Right eye winking/closed
-  display.drawLine(78, 42, 108, 42, WHITE);
+  display.drawLine(78, 48, 108, 48, WHITE);
 
   display.display();
 }
@@ -276,14 +276,14 @@ void drawHeartEyes() {
   drawTopInfo();
 
   // Left Eye Heart
-  display.fillCircle(20 + 8, 30 + 8, 8, WHITE);
-  display.fillCircle(20 + 22, 30 + 8, 8, WHITE);
-  display.fillTriangle(20, 38, 50, 38, 35, 54, WHITE);
+  display.fillCircle(20 + 8, 36 + 8, 8, WHITE);
+  display.fillCircle(20 + 22, 36 + 8, 8, WHITE);
+  display.fillTriangle(20, 44, 50, 44, 35, 60, WHITE);
 
   // Right Eye Heart
-  display.fillCircle(78 + 8, 30 + 8, 8, WHITE);
-  display.fillCircle(78 + 22, 30 + 8, 8, WHITE);
-  display.fillTriangle(78, 38, 108, 38, 93, 54, WHITE);
+  display.fillCircle(78 + 8, 36 + 8, 8, WHITE);
+  display.fillCircle(78 + 22, 36 + 8, 8, WHITE);
+  display.fillTriangle(78, 44, 108, 44, 93, 60, WHITE);
 
   display.display();
 }
@@ -293,16 +293,16 @@ void drawSadEyes() {
   drawTopInfo();
 
   // Base white rounded eyes
-  display.fillRoundRect(20, 30, 30, 24, 10, WHITE);
-  display.fillRoundRect(78, 30, 30, 24, 10, WHITE);
+  display.fillRoundRect(20, 36, 30, 24, 10, WHITE);
+  display.fillRoundRect(78, 36, 30, 24, 10, WHITE);
 
   // Pupils shifted down a bit
-  display.fillCircle(35, 45, 5, BLACK);
-  display.fillCircle(93, 45, 5, BLACK);
+  display.fillCircle(35, 51, 5, BLACK);
+  display.fillCircle(93, 51, 5, BLACK);
 
   // Draw slant covers to make eyes look sad
-  display.fillTriangle(20, 30, 38, 30, 20, 40, BLACK);
-  display.fillTriangle(108, 30, 90, 30, 108, 40, BLACK);
+  display.fillTriangle(20, 36, 38, 36, 20, 46, BLACK);
+  display.fillTriangle(108, 36, 90, 36, 108, 46, BLACK);
 
   display.display();
 }
@@ -312,16 +312,16 @@ void drawAngryEyes() {
   drawTopInfo();
 
   // Base white rounded eyes
-  display.fillRoundRect(20, 30, 30, 24, 10, WHITE);
-  display.fillRoundRect(78, 30, 30, 24, 10, WHITE);
+  display.fillRoundRect(20, 36, 30, 24, 10, WHITE);
+  display.fillRoundRect(78, 36, 30, 24, 10, WHITE);
 
   // Pupils shifted towards the middle
-  display.fillCircle(38, 42, 5, BLACK);
-  display.fillCircle(90, 42, 5, BLACK);
+  display.fillCircle(38, 48, 5, BLACK);
+  display.fillCircle(90, 48, 5, BLACK);
 
   // Draw slant covers to make eyes look angry
-  display.fillTriangle(50, 30, 32, 30, 50, 40, BLACK);
-  display.fillTriangle(78, 30, 96, 30, 78, 40, BLACK);
+  display.fillTriangle(50, 36, 32, 36, 50, 46, BLACK);
+  display.fillTriangle(78, 36, 96, 36, 78, 46, BLACK);
 
   display.display();
 }
@@ -331,12 +331,12 @@ void drawDizzyEyes() {
   drawTopInfo();
 
   // Left Eye X
-  display.drawLine(22, 32, 48, 52, WHITE);
-  display.drawLine(48, 32, 22, 52, WHITE);
+  display.drawLine(22, 38, 48, 58, WHITE);
+  display.drawLine(48, 38, 22, 58, WHITE);
 
   // Right Eye X
-  display.drawLine(80, 32, 106, 52, WHITE);
-  display.drawLine(106, 32, 80, 52, WHITE);
+  display.drawLine(80, 38, 106, 58, WHITE);
+  display.drawLine(106, 38, 80, 58, WHITE);
 
   display.display();
 }
@@ -350,8 +350,8 @@ void blinkEyes() {
 void sleepAnimation() {
   for (int h = 24; h >= 2; h -= 2) {
     display.clearDisplay();
-    display.fillRoundRect(20, 30 - h / 2, 30, h, 8, WHITE);
-    display.fillRoundRect(78, 30 - h / 2, 30, h, 8, WHITE);
+    display.fillRoundRect(20, 48 - h / 2, 30, h, 8, WHITE);
+    display.fillRoundRect(78, 48 - h / 2, 30, h, 8, WHITE);
     display.display();
     delay(80);
   }
@@ -362,8 +362,8 @@ void wakeAnimation() {
   for (int h = 2; h <= 24; h += 2) {
     display.clearDisplay();
     drawTopInfo();
-    display.fillRoundRect(20, 30 - h / 2, 30, h, 8, WHITE);
-    display.fillRoundRect(78, 30 - h / 2, 30, h, 8, WHITE);
+    display.fillRoundRect(20, 48 - h / 2, 30, h, 8, WHITE);
+    display.fillRoundRect(78, 48 - h / 2, 30, h, 8, WHITE);
     display.display();
     delay(80);
   }
@@ -374,8 +374,8 @@ void sleepingScreen() {
   display.clearDisplay();
   drawTopInfo();
 
-  display.drawLine(20, 30, 50, 30, WHITE);
-  display.drawLine(78, 30, 108, 30, WHITE);
+  display.drawLine(20, 42, 50, 42, WHITE);
+  display.drawLine(78, 42, 108, 42, WHITE);
 
   display.setTextColor(WHITE);
   display.setTextSize(2);
@@ -389,7 +389,6 @@ void sleepingScreen() {
   display.setCursor(121, zY - 18);
   display.print(".");
 
-  drawTimer();
   display.display();
 
   zY--;
@@ -528,7 +527,7 @@ void drawTopInfo() {
   if (!pomodoroRunning) {
     display.setTextSize(2);
     display.setTextColor(WHITE);
-    display.setCursor(0, 6);
+    display.setCursor(0, 12);
     display.print(getTimeString());
   }
   drawWiFiStatus();
@@ -537,7 +536,7 @@ void drawTopInfo() {
 void drawWiFiStatus() {
   if (WiFi.status() != WL_CONNECTED) {
     display.setTextSize(1);
-    display.setCursor(112, 6);
+    display.setCursor(112, 12);
     display.print("X");
     return;
   }
@@ -551,7 +550,7 @@ void drawWiFiStatus() {
 
   int x = 112;
   for (int i = 0; i < bars; i++) {
-    display.fillRect(x + i * 4, 14 - (i * 2), 3, 2 + (i * 2), WHITE);
+    display.fillRect(x + i * 4, 20 - (i * 2), 3, 2 + (i * 2), WHITE);
   }
 }
 
