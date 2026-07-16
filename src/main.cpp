@@ -1131,7 +1131,7 @@ void loop() {
     if (touched) {
       if (touchStart == 0) touchStart = millis();
 
-      if (millis() - touchStart > 2000) {
+      if (millis() - touchStart > 1500) { // 1.5s to wake
         sleeping = false;
         wakeAnimation();
         while (digitalRead(TOUCH_PIN) == HIGH) delay(10);
@@ -1156,14 +1156,15 @@ void loop() {
     unsigned long touchDuration = millis() - touchStart;
     lastTouched = false;
     
-    if (touchDuration > 10 && touchDuration < 400) {
+    // Extreme sensitivity to soft touches (2ms to 300ms)
+    if (touchDuration > 2 && touchDuration < 300) {
       tapCount++;
       lastTapTime = millis();
     }
   }
 
-  // Long press to sleep (2 seconds)
-  if (touched && lastTouched && (millis() - touchStart > 2000)) {
+  // Long press to sleep (1.5 seconds instead of 2.0s)
+  if (touched && lastTouched && (millis() - touchStart > 1500)) {
     tapCount = 0;
     lastTouched = false;
     sleepAnimation();
@@ -1172,27 +1173,27 @@ void loop() {
     touchStart = 0;
   }
 
-  // Process tap actions
-  if (tapCount > 0 && (millis() - lastTapTime > 130)) {
+  // Process tap actions with ultra-fast timeout (100ms)
+  if (tapCount > 0 && (millis() - lastTapTime > 100)) {
     if (tapCount == 1) {
       // Single Tap: Fun reactive animations
       int randAnim = random(0, 4); // 0=Happy, 1=Wink, 2=Heart, 3=Dizzy
       if (randAnim == 0) {
-        triggerVibration(100);
+        triggerVibration(80);
         drawHappyEyes();
-        delay(1500);
+        delay(800); // Snappier display block (800ms)
       } else if (randAnim == 1) {
-        triggerVibration(100);
+        triggerVibration(80);
         drawWinkEyes();
-        delay(1500);
+        delay(800);
       } else if (randAnim == 2) {
-        triggerVibration(100);
+        triggerVibration(80);
         drawHeartEyes();
-        delay(1500);
+        delay(800);
       } else {
-        triggerVibration(100);
+        triggerVibration(80);
         drawDizzyEyes();
-        delay(1500);
+        delay(800);
       }
       if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
     } 
@@ -1201,18 +1202,18 @@ void loop() {
       int randExpression = random(0, 2);
       if (randExpression == 0) {
         // Double quick buzz
-        triggerVibration(80);
-        delay(150);
-        triggerVibration(80);
+        triggerVibration(60);
+        delay(100);
+        triggerVibration(60);
         drawAngryEyes();
-        delay(2000);
+        delay(1000); // 1.0s display block
       } else {
         // Double slow buzz
-        triggerVibration(150);
-        delay(200);
-        triggerVibration(150);
+        triggerVibration(120);
+        delay(150);
+        triggerVibration(120);
         drawSadEyes();
-        delay(2000);
+        delay(1000);
       }
       if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
     }
