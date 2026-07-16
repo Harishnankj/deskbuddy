@@ -259,6 +259,39 @@
       </div>
     </div>
 
+    <!-- PC Stats Agent Card -->
+    <div class="card" style="opacity: 0.5; pointer-events: none;" id="pc-stats-card">
+      <label style="margin-bottom: 8px; display: block; font-weight: 700; color: var(--text-highlight);">PC Stats Agent</label>
+      <div class="status-bar" style="margin-bottom: 10px; border-bottom: none;">
+        <span>Agent Status: <span id="stat-agent" style="color: var(--danger); font-weight: bold;">OFFLINE</span></span>
+        <span>CPU: <span id="pc-cpu">--%</span></span>
+        <span>RAM: <span id="pc-ram">--%</span></span>
+        <span>GPU: <span id="pc-gpu">--%</span></span>
+      </div>
+      
+      <div class="actions-grid" style="grid-template-columns: 1fr; margin-top: 10px; margin-bottom: 10px;">
+        <button class="btn-action" id="btn-toggle-agent" onclick="toggleLocalAgent()" style="background: var(--warning); color: #0b0c10; font-weight: 700; border: none; box-shadow: 0 4px 15px rgba(255, 184, 108, 0.2);">▶️ Start Stats Agent on PC</button>
+      </div>
+
+      <div class="actions-grid" style="grid-template-columns: 1fr; margin-top: 10px;">
+        <div style="font-size: 0.8rem; background: rgba(0,0,0,0.2); border: 1px solid var(--glass-border); border-radius: 8px; padding: 12px; line-height: 1.4;">
+          <p style="margin-bottom: 8px; color: var(--primary); font-weight: bold;">To enable PC Hardware Stats on DeskBuddy:</p>
+          <p style="margin-bottom: 6px; font-weight: 600;">Method 1 (Easiest):</p>
+          <p style="margin-bottom: 12px; opacity: 0.9;">Double-click the <code style="background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px; font-family: monospace;">start_stats_agent.bat</code> file at the root of your project folder. (It will ask for your Device ID once and save it!)</p>
+          
+          <p style="margin-bottom: 6px; font-weight: 600;">Method 2 (Terminal):</p>
+          <code style="display: block; background: rgba(255,255,255,0.05); padding: 6px; border-radius: 4px; font-family: monospace; font-size: 0.85rem; word-break: break-all; margin-bottom: 4px;" id="agent-command-box">
+            node server/pc_agent.js db-XXXX
+          </code>
+          <p style="font-size: 0.75rem; opacity: 0.8;">Run this command in your project terminal on your PC.</p>
+        </div>
+      </div>
+      <div class="actions-grid" style="margin-top: 10px;">
+        <button class="btn-action" onclick="triggerAction('mode_stats')" style="padding: 10px;">Switch DeskBuddy to Stats Screen</button>
+        <button class="btn-action" onclick="triggerAction('mode_buddy')" style="padding: 10px;">Switch DeskBuddy to Face Screen</button>
+      </div>
+    </div>
+
     <!-- Chat Card -->
     <div class="card" style="opacity: 0.5; pointer-events: none;" id="chat-card">
       <label style="margin-bottom: 8px; display: block;" id="mic-status-label">Talk to DeskBuddy (Tap Touch Sensor to Speak)</label>
@@ -364,6 +397,8 @@
       
       ws = new WebSocket(wsUrl);
       ws.binaryType = 'blob';
+      
+      document.getElementById('agent-command-box').innerText = `node server/pc_agent.js ${deviceId} --host=${relayHost}`;
 
       ws.onopen = () => {
         console.log("Connected to cloud relay.");
@@ -409,6 +444,43 @@
             } else {
               disableDashboard();
             }
+          }
+          else if (msg.event === 'agent_status') {
+            const isOnline = msg.status === 'online';
+            const statAgent = document.getElementById('stat-agent');
+            const toggleBtn = document.getElementById('btn-toggle-agent');
+            if (isOnline) {
+              statAgent.innerText = "ONLINE";
+              statAgent.style.color = "var(--success)";
+              if (toggleBtn) {
+                toggleBtn.innerText = "⏹️ Stop Stats Agent on PC";
+                toggleBtn.style.background = "var(--danger)";
+                toggleBtn.style.color = "#ffffff";
+                toggleBtn.style.boxShadow = "0 4px 15px rgba(255, 107, 107, 0.3)";
+              }
+            } else {
+              statAgent.innerText = "OFFLINE";
+              statAgent.style.color = "var(--danger)";
+              if (toggleBtn) {
+                toggleBtn.innerText = "▶️ Start Stats Agent on PC";
+                toggleBtn.style.background = "var(--warning)";
+                toggleBtn.style.color = "#0b0c10";
+                toggleBtn.style.boxShadow = "0 4px 15px rgba(255, 184, 108, 0.2)";
+              }
+              document.getElementById('pc-cpu').innerText = "--%";
+              document.getElementById('pc-ram').innerText = "--%";
+              document.getElementById('pc-gpu').innerText = "--%";
+            }
+          }
+          else if (msg.event === 'local_agent_started') {
+            if (msg.status === 'error') {
+              alert(msg.message);
+            }
+          }
+          else if (msg.event === 'pc_stats') {
+            document.getElementById('pc-cpu').innerText = msg.cpu + '%';
+            document.getElementById('pc-ram').innerText = msg.ram + '%';
+            document.getElementById('pc-gpu').innerText = msg.gpu + '%';
           }
           else if (msg.event === 'status') {
             updateStatus(msg);
@@ -474,6 +546,8 @@
     function enableDashboard() {
       document.getElementById('status-settings-card').style.opacity = "1";
       document.getElementById('status-settings-card').style.pointerEvents = "auto";
+      document.getElementById('pc-stats-card').style.opacity = "1";
+      document.getElementById('pc-stats-card').style.pointerEvents = "auto";
       document.getElementById('chat-card').style.opacity = "1";
       document.getElementById('chat-card').style.pointerEvents = "auto";
       document.getElementById('actions-card').style.opacity = "1";
@@ -483,6 +557,8 @@
     function disableDashboard() {
       document.getElementById('status-settings-card').style.opacity = "0.5";
       document.getElementById('status-settings-card').style.pointerEvents = "none";
+      document.getElementById('pc-stats-card').style.opacity = "0.5";
+      document.getElementById('pc-stats-card').style.pointerEvents = "none";
       document.getElementById('chat-card').style.opacity = "0.5";
       document.getElementById('chat-card').style.pointerEvents = "none";
       document.getElementById('actions-card').style.opacity = "0.5";
@@ -521,6 +597,18 @@
         event: 'set_key',
         key: key
       }));
+    }
+
+    function toggleLocalAgent() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const statAgent = document.getElementById('stat-agent');
+      const isOnline = statAgent.innerText === "ONLINE";
+      
+      if (isOnline) {
+        ws.send(JSON.stringify({ event: 'stop_local_agent' }));
+      } else {
+        ws.send(JSON.stringify({ event: 'start_local_agent' }));
+      }
     }
 
     async function sendMessage() {

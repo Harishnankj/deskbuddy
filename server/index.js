@@ -200,7 +200,7 @@ server.on('upgrade', (request, socket, head) => {
     return;
   }
 
-  if (pathname === '/esp32' || pathname === '/client') {
+  if (pathname === '/esp32' || pathname === '/client' || pathname === '/agent') {
     wss.handleUpgrade(request, socket, head, (ws) => {
       wss.emit('connection', ws, request, pathname, deviceId);
     });
@@ -216,6 +216,7 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
     connections[deviceId] = {
       esp32: null,
       client: null,
+      agent: null,
       apiKey: null,
       isRecording: false,
       audioBuffers: []
@@ -237,9 +238,20 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
     const isEspOnline = connections[deviceId].esp32 && connections[deviceId].esp32.readyState === ws.OPEN;
     ws.send(JSON.stringify({ event: 'esp32_status', status: isEspOnline ? 'online' : 'offline' }));
     
+    const isAgentOnline = connections[deviceId].agent && connections[deviceId].agent.readyState === ws.OPEN;
+    ws.send(JSON.stringify({ event: 'agent_status', status: isAgentOnline ? 'online' : 'offline' }));
+    
     // Sync Gemini Key if we already received it from ESP32
     if (connections[deviceId].apiKey) {
       ws.send(JSON.stringify({ event: 'status', apiKey: connections[deviceId].apiKey }));
+    }
+  } else if (pathname === '/agent') {
+    if (connections[deviceId].agent) connections[deviceId].agent.close();
+    connections[deviceId].agent = ws;
+    
+    const client = connections[deviceId].client;
+    if (client && client.readyState === ws.OPEN) {
+      client.send(JSON.stringify({ event: 'agent_status', status: 'online' }));
     }
   }
 
@@ -353,6 +365,45 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
             }
             conn.apiKey = msg.key;
           }
+          else if (msg.event === 'start_local_agent') {
+            const hostHeader = request.headers.host || '';
+            const isLocal = hostHeader.includes('localhost') || hostHeader.includes('127.0.0.1') || hostHeader.includes('192.168.') || hostHeader.includes('10.');
+            
+            if (isLocal) {
+              const isAgentOnline = conn.agent && conn.agent.readyState === 1;
+              if (isAgentOnline) {
+                ws.send(JSON.stringify({ event: 'local_agent_started', status: 'success', message: 'PC Stats Agent is already running!' }));
+              } else {
+                console.log('[Server] Spawning local stats agent...');
+                const { spawn } = require('child_process');
+                const path = require('path');
+                
+                conn.agentProcess = spawn('node', [path.join(__dirname, 'pc_agent.js'), deviceId, `--host=${hostHeader}`], {
+                  detached: true,
+                  stdio: 'ignore'
+                });
+                conn.agentProcess.unref();
+                
+                ws.send(JSON.stringify({ event: 'local_agent_started', status: 'success' }));
+              }
+            } else {
+              ws.send(JSON.stringify({
+                event: 'local_agent_started',
+                status: 'error',
+                message: 'This dashboard is running in the cloud. Cloud servers cannot launch apps on your local PC. Please double-click "start_stats_agent.bat" in your local project folder instead!'
+              }));
+            }
+          }
+          else if (msg.event === 'stop_local_agent') {
+            if (conn.agentProcess) {
+              console.log('[Server] Stopping local stats agent process...');
+              conn.agentProcess.kill();
+              conn.agentProcess = null;
+            }
+            if (conn.agent && conn.agent.readyState === 1) {
+              conn.agent.close();
+            }
+          }
           else if (msg.event === 'text_message') {
             // User typed message from dashboard, run central cloud pipeline
             console.log(`[Text Process] Processing message: "${msg.text}"`);
@@ -395,6 +446,20 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
           console.error('[Client JSON Parse Error]', e);
         }
       }
+    } else if (pathname === '/agent') {
+      try {
+        const msg = JSON.parse(message.toString());
+        if (msg.event === 'pc_stats') {
+          if (conn.esp32 && conn.esp32.readyState === 1) {
+            conn.esp32.send(message.toString());
+          }
+          if (conn.client && conn.client.readyState === 1) {
+            conn.client.send(message.toString());
+          }
+        }
+      } catch (e) {
+        console.error('[Agent JSON Parse Error]', e);
+      }
     }
   });
 
@@ -412,9 +477,17 @@ wss.on('connection', (ws, request, pathname, deviceId) => {
       if (connections[deviceId].client === ws) {
         connections[deviceId].client = null;
       }
+    } else if (pathname === '/agent') {
+      if (connections[deviceId].agent === ws) {
+        connections[deviceId].agent = null;
+        const client = connections[deviceId].client;
+        if (client && client.readyState === ws.OPEN) {
+          client.send(JSON.stringify({ event: 'agent_status', status: 'offline' }));
+        }
+      }
     }
     
-    if (!connections[deviceId].esp32 && !connections[deviceId].client) {
+    if (!connections[deviceId].esp32 && !connections[deviceId].client && !connections[deviceId].agent) {
       delete connections[deviceId];
     }
   });

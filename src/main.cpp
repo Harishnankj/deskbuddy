@@ -1,19 +1,20 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <Adafruit_SH110X.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <WiFiManager.h>
 #include <time.h>
+#include <Preferences.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
-#include <Preferences.h>
-#include <ESPmDNS.h>
-#include "driver/i2s.h"
-#include <HTTPClient.h>
-#include <WiFiClientSecure.h>
-#include "startup_sound.h"
+
+#define BLACK SH110X_BLACK
+#define WHITE SH110X_WHITE
+
+#define CLOUD_RELAY_HOST "deskbuddy-relay.onrender.com"
+#define CLOUD_RELAY_PORT 443
 
 // Hardware Pins (realigned for ESP32-C3 SuperMini)
 #define SCREEN_WIDTH 128
@@ -23,12 +24,6 @@
 #define BUTTON_PIN 3
 #define ONBOARD_BOOT_PIN 9
 #define VIBRATION_PIN 10
-
-// I2S Audio Pins (Shared clocks configuration)
-#define I2S_WS_PIN 4
-#define I2S_BCLK_PIN 5
-#define I2S_DIN_PIN 6   // Mic input
-#define I2S_DOUT_PIN 7  // Speaker output
 
 // Onboard status LED (GPIO 8 is standard on C3 SuperMini)
 #ifdef LED_BUILTIN
@@ -42,25 +37,40 @@ const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 19800; // India UTC+5:30
 const int daylightOffset_sec = 0;
 
-// Cloud WebSocket Relay Configuration
-// NOTE: Change this to your deployed Render app host (e.g. "my-deskbuddy.onrender.com")
-#define CLOUD_RELAY_HOST "deskbuddy-relay.onrender.com"
-#define CLOUD_RELAY_PORT 443
-
 // Display Instance
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-
-// WebSockets Client to connect to the cloud relay
-WebSocketsClient webSocket;
-
-// Unique Device ID generated on boot
-String deviceId = "";
+Adafruit_SH1106G display = Adafruit_SH1106G(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // Preferences for persistent flash storage
 Preferences preferences;
+
+// WebSockets Client
+WebSocketsClient webSocket;
+
+// Pairing and API keys
+String deviceId = "";
 String geminiApiKey = "";
 
-// Global State Variables (from wifiindeskmate.ino)
+// PC Stats State
+int pcCpuUsage = -1;
+int pcCpuTemp = -1;
+int pcRamUsage = -1;
+int pcGpuUsage = -1;
+int pcGpuTemp = -1;
+unsigned long lastPcStatsTime = 0;
+
+enum DisplayMode {
+  MODE_BUDDY,
+  MODE_PC_STATS
+};
+DisplayMode currentMode = MODE_BUDDY;
+bool manualStatsMode = false;
+
+// Auto-cycling timer state
+unsigned long lastModeCycleTime = 0;
+const unsigned long CYCLE_BUDDY_MS = 15000; // 15 seconds face
+const unsigned long CYCLE_STATS_MS = 10000; // 10 seconds stats
+
+// Global State Variables
 bool sleeping = false;
 unsigned long touchStart = 0;
 int pupilX = 0;
@@ -68,6 +78,10 @@ int pupilY = 0;
 unsigned long lastBlink = 0;
 unsigned long lastMove = 0;
 int zY = 45;
+bool lastTouched = false;
+int tapCount = 0;
+unsigned long lastTapTime = 0;
+const unsigned long TAP_TIMEOUT = 250; // ms to wait for double tap
 
 // POMODORO State
 bool pomodoroRunning = false;
@@ -76,17 +90,9 @@ unsigned long pomodoroStart = 0;
 unsigned long breakStart = 0;
 const unsigned long POMODORO_TIME = 25UL * 60UL * 1000UL; // 25 mins
 bool lastButtonState = HIGH;
-
-// Audio Streaming State
-bool isRecording = false;
-enum RecordingState {
-  REC_IDLE,
-  REC_PENDING,
-  REC_ACTIVE
-};
-RecordingState recState = REC_IDLE;
-unsigned long recPendingStart = 0;
-const unsigned long REC_DELAY_MS = 1200; // 1.2s delay for "listening" prompt to play
+unsigned long buttonPressStart = 0;
+bool buttonPressed = false;
+bool longPressTriggered = false;
 
 // Vibration State & Controller
 unsigned long vibrationEnd = 0;
@@ -95,289 +101,29 @@ void triggerVibration(int durationMs) {
   vibrationEnd = millis() + durationMs;
 }
 
-
-// AI speech display variables
-String aiReplyText = "";
-unsigned long aiReplyDisplayStart = 0;
-
 // Function Declarations
 String getTimeString();
 void drawTopInfo();
 void drawWiFiStatus();
 void drawTimer();
-void drawAIText();
 void drawEyes(int px, int py);
 void drawClosedEyes();
 void drawHappyEyes();
 void drawWinkEyes();
+void drawHeartEyes();
+void drawSadEyes();
+void drawAngryEyes();
+void drawDizzyEyes();
 void blinkEyes();
 void sleepAnimation();
 void wakeAnimation();
 void sleepingScreen();
 void showBreakTime();
-void executeAction(String action);
-void setupI2SFullDuplex();
-void playTestTone();
-void setupDeviceId();
 void recoverI2C();
+void drawPCStats();
+void setupDeviceId();
 
-// --- WebSocket Event Callback ---
-
-void onWebSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
-  switch (type) {
-    case WStype_DISCONNECTED:
-      Serial.println("[WebSocketClient] Disconnected from Cloud Relay");
-      break;
-    case WStype_CONNECTED: {
-      Serial.println("[WebSocketClient] Connected to Cloud Relay!");
-      // Send registration payload with saved Gemini API Key
-      JsonDocument regDoc;
-      regDoc["event"] = "register_esp32";
-      regDoc["apiKey"] = geminiApiKey;
-      String regStr;
-      serializeJson(regDoc, regStr);
-      webSocket.sendTXT(regStr);
-      Serial.println("[WebSocketClient] Registration sent to server.");
-      break;
-    }
-    case WStype_TEXT: {
-      JsonDocument doc;
-      DeserializationError error = deserializeJson(doc, payload);
-      if (error) {
-        Serial.print("[WebSocketClient] Deserialization failed: ");
-        Serial.println(error.c_str());
-        return;
-      }
-      
-      String event = doc["event"];
-      if (event == "get_status") {
-        int rssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
-        JsonDocument resDoc;
-        resDoc["event"] = "status";
-        resDoc["time"] = getTimeString();
-        resDoc["sleeping"] = sleeping;
-        resDoc["pomodoroRunning"] = pomodoroRunning;
-        resDoc["wifiRSSI"] = rssi;
-        resDoc["apiKey"] = geminiApiKey;
-        
-        String resStr;
-        serializeJson(resDoc, resStr);
-        webSocket.sendTXT(resStr);
-      } 
-      else if (event == "set_key") {
-        String key = doc["key"];
-        preferences.begin("deskbuddy", false);
-        preferences.putString("apiKey", key);
-        preferences.end();
-        geminiApiKey = key;
-        
-        JsonDocument resDoc;
-        resDoc["event"] = "set_key_response";
-        resDoc["status"] = "ok";
-        
-        String resStr;
-        serializeJson(resDoc, resStr);
-        webSocket.sendTXT(resStr);
-        Serial.println("[WebSocketClient] Gemini API key updated.");
-
-        // Update server registration with new key
-        JsonDocument regDoc;
-        regDoc["event"] = "register_esp32";
-        regDoc["apiKey"] = geminiApiKey;
-        String regStr;
-        serializeJson(regDoc, regStr);
-        webSocket.sendTXT(regStr);
-        Serial.println("[WebSocketClient] Re-registered key with server.");
-      }
-      else if (event == "action") {
-        String actionType = doc["type"];
-        if (doc.containsKey("reply")) {
-          aiReplyText = doc["reply"].as<String>();
-          aiReplyDisplayStart = millis();
-          triggerVibration(150); // Buzz for 150ms on new message
-        }
-        executeAction(actionType);
-      }
-      break;
-    }
-    case WStype_BIN: {
-      size_t bytesWritten = 0;
-      i2s_write(I2S_NUM_0, payload, length, &bytesWritten, portMAX_DELAY);
-      break;
-    }
-    case WStype_ERROR:
-      Serial.println("[WebSocketClient] Socket error occurred!");
-      break;
-  }
-}
-
-// --- Action Execution Logic ---
-
-void executeAction(String action) {
-  Serial.printf("[Action Executer] Triggering: %s\n", action.c_str());
-
-  if (action == "led_on") {
-    digitalWrite(ledPin, HIGH);
-  } 
-  else if (action == "led_off") {
-    digitalWrite(ledPin, LOW);
-  } 
-  else if (action == "happy") {
-    triggerVibration(120); // Quick haptic buzz
-    drawHappyEyes();
-    delay(700);
-    drawEyes(pupilX, pupilY);
-  } 
-  else if (action == "wink") {
-    triggerVibration(120); // Quick haptic buzz
-    drawWinkEyes();
-    delay(1000);
-    drawEyes(pupilX, pupilY);
-  } 
-  else if (action == "vibrate") {
-    triggerVibration(500); // 500ms vibration
-  }
-  else if (action == "blink") {
-    blinkEyes();
-  } 
-  else if (action == "sleep") {
-    if (!sleeping) {
-      sleepAnimation();
-      sleeping = true;
-    }
-  } 
-  else if (action == "wake" || action == "normal") {
-    if (sleeping) {
-      sleeping = false;
-      wakeAnimation();
-    } else {
-      drawEyes(0, 0);
-    }
-  } 
-  else if (action == "start_pomodoro" || action == "toggle_pomodoro") {
-    if (!pomodoroRunning) {
-      pomodoroRunning = true;
-      pomodoroStart = millis();
-      Serial.println("Pomodoro Started");
-    } else {
-      pomodoroRunning = false;
-      Serial.println("Pomodoro Stopped");
-    }
-  } 
-  else if (action == "stop_pomodoro") {
-    if (pomodoroRunning) {
-      pomodoroRunning = false;
-      Serial.println("Pomodoro Stopped");
-    }
-  } 
-  else if (action == "trigger_voice") {
-    if (recState == REC_IDLE) {
-      recState = REC_PENDING;
-      recPendingStart = millis();
-      aiReplyText = "Listening...";
-      aiReplyDisplayStart = millis();
-      drawEyes(0, 0);
-      webSocket.sendTXT("{\"event\":\"speak_listening\"}");
-      Serial.println("[Action] Recording Pending triggered via Web API");
-    }
-  } 
-  else if (action == "stop_voice") {
-    if (recState == REC_ACTIVE || recState == REC_PENDING) {
-      isRecording = false;
-      recState = REC_IDLE;
-      aiReplyText = "Thinking...";
-      aiReplyDisplayStart = millis();
-      drawEyes(0, 0);
-      webSocket.sendTXT("{\"event\":\"stop_recording\"}");
-      Serial.println("[Action] Recording Stopped via Web API");
-    }
-  }
-}
-
-// --- I2S Configuration Functions ---
-
-void playTestTone() {
-  Serial.println("[Speaker Test] Playing startup voice greeting...");
-  
-  const int chunkSize = 256;
-  int16_t ramBuffer[chunkSize];
-  
-  size_t samplesRemaining = startup_sound_len;
-  size_t offset = 0;
-  
-  while (samplesRemaining > 0) {
-    size_t samplesToRead = (samplesRemaining > chunkSize) ? chunkSize : samplesRemaining;
-    
-    // Read from flash memory PROGMEM to internal RAM
-    memcpy_P(ramBuffer, &startup_sound[offset], samplesToRead * sizeof(int16_t));
-    
-    size_t bytesWritten = 0;
-    i2s_write(I2S_NUM_0, ramBuffer, samplesToRead * sizeof(int16_t), &bytesWritten, portMAX_DELAY);
-    
-    offset += samplesToRead;
-    samplesRemaining -= samplesToRead;
-  }
-  
-  Serial.println("[Speaker Test] Startup voice greeting complete.");
-}
-
-void setupI2SFullDuplex() {
-  i2s_config_t i2s_config = {
-    .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_RX),
-    .sample_rate = 16000,
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-    .dma_buf_count = 16,
-    .dma_buf_len = 256,
-    .use_apll = false,
-    .tx_desc_auto_clear = true
-  };
-  i2s_pin_config_t pin_config = {
-    .bck_io_num = I2S_BCLK_PIN,
-    .ws_io_num = I2S_WS_PIN,
-    .data_out_num = I2S_DOUT_PIN,
-    .data_in_num = I2S_DIN_PIN
-  };
-  i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL);
-  i2s_set_pin(I2S_NUM_0, &pin_config);
-}
-
-// --- original DeskMate display and timer routines ---
-
-void drawAIText() {
-  if (aiReplyText.length() > 0 && millis() - aiReplyDisplayStart < 6000) {
-    display.setTextSize(1);
-    display.setTextColor(WHITE);
-    
-    int textWidth = aiReplyText.length() * 6;
-    int viewWidth = 120;
-    int scrollRange = textWidth - viewWidth;
-    
-    int xPos = 4;
-    if (scrollRange > 0) {
-      unsigned long elapsed = millis() - aiReplyDisplayStart;
-      unsigned long scrollDuration = scrollRange * 25; // 25ms per pixel scroll speed
-      unsigned long cycleTime = scrollDuration + 2000; // 1s start pause + 1s end pause
-      
-      unsigned long phase = elapsed % cycleTime;
-      if (phase < 1000) {
-        xPos = 4;
-      } else if (phase < 1000 + scrollDuration) {
-        int pixelsScrolled = (phase - 1000) / 25;
-        xPos = 4 - pixelsScrolled;
-      } else {
-        xPos = 4 - scrollRange;
-      }
-    } else {
-      // Center small text
-      xPos = (128 - textWidth) / 2;
-    }
-    
-    display.setCursor(xPos, 56); // Shifted down from 48 to 56 to avoid eyes
-    display.print(aiReplyText);
-  }
-}
+// --- Display and Timer Routines ---
 
 void drawTimer() {
   if (!pomodoroRunning) return;
@@ -427,7 +173,6 @@ void drawEyes(int px, int py) {
   display.fillCircle(93 + px, 36 + py, 5, BLACK);
 
   drawTimer();
-  drawAIText();
   display.display();
 }
 
@@ -439,7 +184,6 @@ void drawClosedEyes() {
   display.drawLine(78, 30, 108, 30, WHITE);
 
   drawTimer();
-  drawAIText();
   display.display();
 }
 
@@ -454,7 +198,6 @@ void drawHappyEyes() {
   display.drawLine(93, 20, 108, 30, WHITE);
 
   drawTimer();
-  drawAIText();
   display.display();
 }
 
@@ -470,7 +213,80 @@ void drawWinkEyes() {
   display.drawLine(78, 36, 108, 36, WHITE);
 
   drawTimer();
-  drawAIText();
+  display.display();
+}
+
+void drawHeartEyes() {
+  display.clearDisplay();
+  drawTopInfo();
+
+  // Left Eye Heart
+  display.fillCircle(20 + 8, 24 + 8, 8, WHITE);
+  display.fillCircle(20 + 22, 24 + 8, 8, WHITE);
+  display.fillTriangle(20, 32, 50, 32, 35, 48, WHITE);
+
+  // Right Eye Heart
+  display.fillCircle(78 + 8, 24 + 8, 8, WHITE);
+  display.fillCircle(78 + 22, 24 + 8, 8, WHITE);
+  display.fillTriangle(78, 32, 108, 32, 93, 48, WHITE);
+
+  drawTimer();
+  display.display();
+}
+
+void drawSadEyes() {
+  display.clearDisplay();
+  drawTopInfo();
+
+  // Base white rounded eyes
+  display.fillRoundRect(20, 24, 30, 24, 10, WHITE);
+  display.fillRoundRect(78, 24, 30, 24, 10, WHITE);
+
+  // Pupils shifted down a bit
+  display.fillCircle(35, 39, 5, BLACK);
+  display.fillCircle(93, 39, 5, BLACK);
+
+  // Draw slant covers to make eyes look sad
+  display.fillTriangle(20, 24, 38, 24, 20, 34, BLACK);
+  display.fillTriangle(108, 24, 90, 24, 108, 34, BLACK);
+
+  drawTimer();
+  display.display();
+}
+
+void drawAngryEyes() {
+  display.clearDisplay();
+  drawTopInfo();
+
+  // Base white rounded eyes
+  display.fillRoundRect(20, 24, 30, 24, 10, WHITE);
+  display.fillRoundRect(78, 24, 30, 24, 10, WHITE);
+
+  // Pupils shifted towards the middle
+  display.fillCircle(38, 36, 5, BLACK);
+  display.fillCircle(90, 36, 5, BLACK);
+
+  // Draw slant covers to make eyes look angry
+  display.fillTriangle(50, 24, 32, 24, 50, 34, BLACK);
+  display.fillTriangle(78, 24, 96, 24, 78, 34, BLACK);
+
+  drawTimer();
+  display.display();
+}
+
+void drawDizzyEyes() {
+  display.clearDisplay();
+  drawTopInfo();
+
+  // Left Eye X
+  display.drawLine(22, 26, 48, 46, WHITE);
+  display.drawLine(48, 26, 22, 46, WHITE);
+
+  // Right Eye X
+  display.drawLine(80, 26, 106, 46, WHITE);
+  display.drawLine(106, 26, 80, 46, WHITE);
+
+  drawTimer();
   display.display();
 }
 
@@ -523,7 +339,6 @@ void sleepingScreen() {
   display.print(".");
 
   drawTimer();
-  drawAIText();
   display.display();
 
   zY--;
@@ -572,8 +387,8 @@ void configModeCallback(WiFiManager *myWiFiManager) {
   Serial.println("[Setup] Re-initializing display for config portal AP mode...");
   recoverI2C();
   Wire.begin(0, 1);
-  display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
-  display.ssd1306_command(SSD1306_DISPLAYON);
+  display.begin(OLED_ADDR, true);
+  display.oled_command(SH110X_DISPLAYON);
   
   display.clearDisplay();
   display.setTextSize(1);
@@ -600,7 +415,7 @@ void connectWiFi() {
 
   // Turn off display charge pump to protect from WiFi power transients
   Serial.println("[WiFi] Turning display off during connection...");
-  display.ssd1306_command(SSD1306_DISPLAYOFF);
+  display.oled_command(SH110X_DISPLAYOFF);
   delay(50);
 
   Serial.println("[WiFi] Registering Event Listener...");
@@ -654,8 +469,8 @@ void drawTopInfo() {
       recoverI2C();
       Wire.begin(0, 1);
       Wire.setTimeOut(100);
-      display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
-      display.ssd1306_command(SSD1306_DISPLAYON);
+      display.begin(OLED_ADDR, true);
+      display.oled_command(SH110X_DISPLAYON);
     }
   }
 
@@ -689,10 +504,225 @@ void drawWiFiStatus() {
   }
 }
 
+void setupDeviceId() {
+  preferences.begin("deskbuddy", false);
+  deviceId = preferences.getString("deviceId", "");
+  if (deviceId.isEmpty()) {
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    char buf[12];
+    sprintf(buf, "db-%02X%02X", mac[4], mac[5]);
+    deviceId = String(buf);
+    preferences.putString("deviceId", deviceId);
+  }
+  preferences.end();
+  Serial.printf("[DeviceID] Active Device ID: %s\n", deviceId.c_str());
+}
+
+void onWebSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
+  switch (type) {
+    case WStype_DISCONNECTED:
+      Serial.println("[WebSocket] Disconnected");
+      break;
+    case WStype_CONNECTED: {
+      Serial.println("[WebSocket] Connected to relay server");
+      // Register with relay server
+      JsonDocument regDoc;
+      regDoc["event"] = "register_esp32";
+      regDoc["apiKey"] = geminiApiKey;
+      String regStr;
+      serializeJson(regDoc, regStr);
+      webSocket.sendTXT(regStr);
+      break;
+    }
+    case WStype_TEXT: {
+      JsonDocument doc;
+      DeserializationError error = deserializeJson(doc, payload);
+      if (error) {
+        Serial.println("[WebSocket] JSON Deserialization failed");
+        return;
+      }
+      
+      String event = doc["event"];
+      if (event == "get_status") {
+        int rssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+        JsonDocument resDoc;
+        resDoc["event"] = "status";
+        resDoc["time"] = getTimeString();
+        resDoc["sleeping"] = sleeping;
+        resDoc["pomodoroRunning"] = pomodoroRunning;
+        resDoc["wifiRSSI"] = rssi;
+        resDoc["apiKey"] = geminiApiKey;
+        
+        String resStr;
+        serializeJson(resDoc, resStr);
+        webSocket.sendTXT(resStr);
+      }
+      else if (event == "set_key") {
+        String key = doc["key"];
+        preferences.begin("deskbuddy", false);
+        preferences.putString("apiKey", key);
+        preferences.end();
+        geminiApiKey = key;
+        
+        JsonDocument resDoc;
+        resDoc["event"] = "set_key_response";
+        resDoc["status"] = "ok";
+        
+        String resStr;
+        serializeJson(resDoc, resStr);
+        webSocket.sendTXT(resStr);
+        
+        // Re-register
+        JsonDocument regDoc;
+        regDoc["event"] = "register_esp32";
+        regDoc["apiKey"] = geminiApiKey;
+        String regStr;
+        serializeJson(regDoc, regStr);
+        webSocket.sendTXT(regStr);
+      }
+      else if (event == "action") {
+        String actionType = doc["type"];
+        if (actionType == "mode_buddy") {
+          currentMode = MODE_BUDDY;
+          manualStatsMode = false;
+          lastModeCycleTime = millis();
+          triggerVibration(100);
+          drawEyes(pupilX, pupilY);
+        }
+        else if (actionType == "mode_stats") {
+          currentMode = MODE_PC_STATS;
+          manualStatsMode = true;
+          lastModeCycleTime = millis();
+          triggerVibration(100);
+          drawPCStats();
+        }
+      }
+      else if (event == "pc_stats") {
+        // Parse PC Stats!
+        if (doc.containsKey("cpu")) pcCpuUsage = doc["cpu"];
+        if (doc.containsKey("cpuTemp")) pcCpuTemp = doc["cpuTemp"];
+        if (doc.containsKey("ram")) pcRamUsage = doc["ram"];
+        if (doc.containsKey("gpu")) pcGpuUsage = doc["gpu"];
+        if (doc.containsKey("gpuTemp")) pcGpuTemp = doc["gpuTemp"];
+        lastPcStatsTime = millis();
+        manualStatsMode = false; // PC agent is online, resume auto-cycling!
+        
+        // If we are currently in Stats Mode, redraw immediately to look super responsive
+        if (currentMode == MODE_PC_STATS) {
+          drawPCStats();
+        }
+      }
+      break;
+    }
+    case WStype_BIN:
+      break;
+    default:
+      break;
+  }
+}
+
+void drawPCStats() {
+  display.clearDisplay();
+
+  // Top Bar: Time and Wi-Fi RSSI
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.print(getTimeString());
+
+  // Draw WiFi status on the right side of the top bar
+  drawWiFiStatus();
+
+  // Draw divider line under the top bar
+  display.drawLine(0, 10, 128, 10, WHITE);
+
+  // Check if stats are active (updated within the last 15 seconds)
+  bool statsActive = (millis() - lastPcStatsTime < 15000);
+
+  if (!statsActive) {
+    display.setCursor(0, 10);
+    display.println("   PC Stats Agent");
+    display.println("    is Offline.");
+    display.println("");
+    display.println(" Run pc_agent.js or");
+    display.println("  double-click .bat");
+    display.println("  file on your PC!");
+    display.display();
+    return;
+  }
+
+  // --- CPU Section ---
+  display.setCursor(0, 14);
+  display.print("CPU: ");
+  if (pcCpuUsage >= 0) {
+    display.print(pcCpuUsage);
+    display.print("%");
+  } else {
+    display.print("--");
+  }
+  
+  if (pcCpuTemp >= 0) {
+    display.setCursor(85, 14);
+    display.print(pcCpuTemp);
+    display.print("C");
+  }
+  
+  // Progress Bar for CPU
+  display.drawRect(0, 23, 128, 5, WHITE);
+  if (pcCpuUsage > 0) {
+    int fillW = map(pcCpuUsage, 0, 100, 0, 126);
+    display.fillRect(1, 24, fillW, 3, WHITE);
+  }
+
+  // --- RAM Section ---
+  display.setCursor(0, 31);
+  display.print("RAM: ");
+  if (pcRamUsage >= 0) {
+    display.print(pcRamUsage);
+    display.print("%");
+  } else {
+    display.print("--");
+  }
+  
+  // Progress Bar for RAM
+  display.drawRect(0, 40, 128, 5, WHITE);
+  if (pcRamUsage > 0) {
+    int fillW = map(pcRamUsage, 0, 100, 0, 126);
+    display.fillRect(1, 41, fillW, 3, WHITE);
+  }
+
+  // --- GPU Section ---
+  display.setCursor(0, 48);
+  display.print("GPU: ");
+  if (pcGpuUsage >= 0) {
+    display.print(pcGpuUsage);
+    display.print("%");
+  } else {
+    display.print("--");
+  }
+  
+  if (pcGpuTemp >= 0) {
+    display.setCursor(85, 48);
+    display.print(pcGpuTemp);
+    display.print("C");
+  }
+  
+  // Progress Bar for GPU
+  display.drawRect(0, 57, 128, 5, WHITE);
+  if (pcGpuUsage > 0) {
+    int fillW = map(pcGpuUsage, 0, 100, 0, 126);
+    display.fillRect(1, 58, fillW, 3, WHITE);
+  }
+
+  display.display();
+}
+
 // Setup
 void setup() {
   Serial.begin(115200);
   Serial.println("DeskMate Started");
+  setupDeviceId();
 
   pinMode(TOUCH_PIN, INPUT);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
@@ -705,7 +735,7 @@ void setup() {
   Wire.begin(0, 1);
   Wire.setTimeOut(100); // Prevent blocking lockups if OLED crashes
 
-  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+  if (!display.begin(OLED_ADDR, true)) {
     Serial.println("OLED Failed");
     while (1);
   }
@@ -807,37 +837,13 @@ void setup() {
   recoverI2C();
   Wire.begin(0, 1);
   Wire.setTimeOut(100);
-  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+  if (!display.begin(OLED_ADDR, true)) {
     Serial.println("[Setup] OLED Re-init Failed!");
   } else {
     Serial.println("[Setup] OLED Re-init Success!");
   }
 
-  // Load API Key and Device ID from flash preferences in a single block to prevent lockups
-  Serial.println("[Setup] Loading settings from flash preferences...");
-  preferences.begin("deskbuddy", false);
-  
-  deviceId = preferences.getString("deviceId", "");
-  if (deviceId.isEmpty()) {
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    char buf[12];
-    sprintf(buf, "db-%02X%02X", mac[4], mac[5]);
-    deviceId = String(buf);
-    preferences.putString("deviceId", deviceId);
-  }
-  Serial.printf("[Preferences] Active Device ID: %s\n", deviceId.c_str());
-
-  geminiApiKey = preferences.getString("apiKey", "AQ.Ab8RN6IO_s5pTZaB2bOUIXs5yKpu_SF6cBi0TaSo9dR4Gva2eA");
-  preferences.end();
-  Serial.printf("[Preferences] Active Gemini API Key: %s\n", geminiApiKey.c_str());
-
-  // Setup I2S Audio in Full Duplex Mode (Shared clocks)
-  Serial.println("[Setup] Calling setupI2SFullDuplex...");
-  setupI2SFullDuplex();
-  Serial.println("[Setup] setupI2SFullDuplex returned.");
-
-  // Show "DeskBuddy by Hari" name on screen during startup sound
+  // Show "DeskBuddy by Hari" name on screen during startup
   Serial.println("[Setup] Displaying startup screen name...");
   display.clearDisplay();
   display.setTextColor(WHITE);
@@ -853,95 +859,50 @@ void setup() {
   display.print("by Hari");
   
   display.display();
-  Serial.println("[Setup] Display output pushed.");
-
-  // Play diagnostic test tone to verify physical speaker is working
-  Serial.println("[Setup] Calling playTestTone...");
-  playTestTone();
-  Serial.println("[Setup] playTestTone returned.");
-
-  // Re-initialize the OLED display to recover from any speaker power-up brownout/freeze.
-  // We first perform I2C bus recovery (clocking SCL pin) to clear any slave lockups.
-  Serial.println("[Setup] Re-initializing display post-startup sound...");
-  recoverI2C();
-  Wire.begin(0, 1);
-  Wire.setTimeOut(100);
-  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
-    Serial.println("[Setup] OLED Post-Sound Re-init Failed!");
-  } else {
-    Serial.println("[Setup] OLED Post-Sound Re-init Success!");
-  }
-
-  // Draw eyes back after startup sound completes
-  Serial.println("[Setup] Drawing eyes...");
-  drawEyes(0, 0);
-  Serial.println("[Setup] Eyes drawn.");
-
-  // Connect to WebSocket Relay
-  Serial.println("[Setup] Configuring WebSocket connection...");
-  String wsUrl = "/esp32?device_id=" + deviceId;
-
-  // Check if a local relay server is running on the gateway IP on port 3000
-  IPAddress gateway = WiFi.gatewayIP();
-  WiFiClient client;
-  bool localServerFound = false;
-
-  Serial.printf("[Setup] Probing local relay server at %s:3000...\n", gateway.toString().c_str());
-  if (client.connect(gateway, 3000)) {
-    Serial.println("[Setup] Local relay server detected!");
-    localServerFound = true;
-    client.stop();
-  } else {
-    Serial.println("[Setup] No local relay server found. Using Cloud Relay fallback.");
-  }
-
-  if (localServerFound) {
-    // Local WebSocket connection (no SSL)
-    webSocket.begin(gateway, 3000, wsUrl.c_str());
-  } else {
-    // Cloud WebSocket connection (with SSL)
-    webSocket.beginSslWithCA(CLOUD_RELAY_HOST, CLOUD_RELAY_PORT, wsUrl.c_str());
-  }
-
-  webSocket.onEvent(onWebSocketEvent);
-  webSocket.setReconnectInterval(5000);
-  Serial.println("[Setup] WebSocket configured.");
+  delay(2000); // Display name for 2 seconds
 
   // Show connected IP and Device ID on screen
   if (WiFi.status() == WL_CONNECTED) {
     display.clearDisplay();
     display.setTextColor(WHITE);
-    
-    // Title
     display.setTextSize(1);
+    
     display.setCursor(0, 0);
-    display.println("Wi-Fi Connected!");
+    display.println("  Wi-Fi Connected!");
+    display.println("");
+    display.println("  Pair on Dashboard:");
+    display.println("  Device ID:");
     
-    // URL
-    display.setCursor(0, 10);
-    display.println("Go to Dashboard:");
-    display.println("harishnankj.github.io");
-    display.println("/deskbuddy");
-    
-    // Device ID Label
-    display.setCursor(0, 38);
-    display.println("Device ID:");
-    
-    // Device ID (Centered, size 2)
-    int textWidth = deviceId.length() * 12; // char width at size 2 is 12px
-    int xPos = (128 - textWidth) / 2;
-    if (xPos < 0) xPos = 0;
-    display.setCursor(xPos, 48);
     display.setTextSize(2);
-    display.print(deviceId);
-    
+    display.setCursor(10, 35);
+    display.println(deviceId);
     display.display();
-    delay(5000); // Display for 5 seconds
+    delay(4000); // Display for 4 seconds so the user can read the pairing ID
   }
+
+  // WebSocket setup
+  preferences.begin("deskbuddy", true);
+  geminiApiKey = preferences.getString("apiKey", "");
+  preferences.end();
+
+  webSocket.beginSSL(CLOUD_RELAY_HOST, CLOUD_RELAY_PORT, "/esp32?device_id=" + deviceId);
+  webSocket.onEvent(onWebSocketEvent);
+  webSocket.setReconnectInterval(5000);
+
+  // Initialize cycle timer
+  lastModeCycleTime = millis();
+
+  // Draw eyes back after startup completes
+  Serial.println("[Setup] Drawing eyes...");
+  drawEyes(0, 0);
+  Serial.println("[Setup] Eyes drawn.");
 }
 
 // Loop
 void loop() {
+  // Process WebSocket events
+  webSocket.loop();
+
   static unsigned long lastTimePrint = 0;
 
   // Handle non-blocking vibration
@@ -950,42 +911,33 @@ void loop() {
     vibrationEnd = 0;
   }
 
-  // Handle WebSocket client connections and processing
-  webSocket.loop();
-
-  // Smoothly redraw eyes during scrolling animation (20 FPS)
-  if (aiReplyText.length() > 0 && millis() - aiReplyDisplayStart < 6000) {
-    static unsigned long lastScrollTime = 0;
-    if (millis() - lastScrollTime > 50) {
-      if (!sleeping && !breakScreen) {
-        drawEyes(pupilX, pupilY);
-      }
-      lastScrollTime = millis();
-    }
-  }
-
   if (millis() - lastTimePrint > 1000) {
     Serial.println(getTimeString());
     lastTimePrint = millis();
   }
 
-  // Handle pending recording start
-  if (recState == REC_PENDING) {
-    if (millis() - recPendingStart >= REC_DELAY_MS) {
-      recState = REC_ACTIVE;
-      isRecording = true;
-      webSocket.sendTXT("{\"event\":\"start_recording\"}");
-      Serial.println("[Touch] Recording Started (Mic Active)");
-    }
-  }
-
-  // Stream Mic Data to Web Client if active recording
-  if (isRecording) {
-    int16_t micBuffer[128];
-    size_t bytesRead = 0;
-    esp_err_t result = i2s_read(I2S_NUM_0, micBuffer, sizeof(micBuffer), &bytesRead, 10);
-    if (result == ESP_OK && bytesRead > 0) {
-      webSocket.sendBIN((uint8_t*)micBuffer, bytesRead);
+  // Auto-cycling display modes if PC stats are active
+  if (!manualStatsMode) {
+    if (millis() - lastPcStatsTime < 15000) {
+      unsigned long currentCycleTime = millis() - lastModeCycleTime;
+      if (currentMode == MODE_BUDDY && currentCycleTime >= CYCLE_BUDDY_MS) {
+        currentMode = MODE_PC_STATS;
+        lastModeCycleTime = millis();
+        Serial.println("[AutoCycle] Switched to PC Stats Mode");
+      } 
+      else if (currentMode == MODE_PC_STATS && currentCycleTime >= CYCLE_STATS_MS) {
+        currentMode = MODE_BUDDY;
+        lastModeCycleTime = millis();
+        Serial.println("[AutoCycle] Switched to Buddy Mode");
+        drawEyes(pupilX, pupilY);
+      }
+    } else {
+      // If stats are stale, force back to Buddy Mode
+      if (currentMode == MODE_PC_STATS && (millis() - lastPcStatsTime >= 15000)) {
+        currentMode = MODE_BUDDY;
+        Serial.println("[AutoCycle] PC Stats stale. Reverted to Buddy Mode.");
+        drawEyes(pupilX, pupilY);
+      }
     }
   }
 
@@ -1004,28 +956,80 @@ void loop() {
     
     if (millis() - breakStart > 5000) {
       breakScreen = false;
-      drawEyes(0, 0);
+      drawEyes(pupilX, pupilY);
     }
     delay(1);
     return;
   }
 
-  // BUTTON Input
-  bool buttonState = digitalRead(BUTTON_PIN);
-  if (lastButtonState == HIGH && buttonState == LOW) {
-    if (!pomodoroRunning) {
-      pomodoroRunning = true;
-      pomodoroStart = millis();
-      Serial.println("Pomodoro Started");
-    } else {
-      pomodoroRunning = false;
-      Serial.println("Pomodoro Stopped");
-    }
-    delay(200);
-  }
-  lastButtonState = buttonState;
+  // BUTTON / Timer switch click & double press detection
+  static int buttonClickCount = 0;
+  static unsigned long lastButtonClickTime = 0;
+  static bool lastButtonReading = HIGH;
+  static unsigned long buttonPressTime = 0;
+  static bool buttonIsHeld = false;
+  static bool buttonLongPressed = false;
 
-  bool touched = digitalRead(TOUCH_PIN);
+  bool buttonReading = digitalRead(BUTTON_PIN);
+
+  if (lastButtonReading == HIGH && buttonReading == LOW) {
+    buttonPressTime = millis();
+    buttonIsHeld = true;
+    buttonLongPressed = false;
+  }
+  else if (buttonReading == HIGH && lastButtonReading == LOW) {
+    buttonIsHeld = false;
+    unsigned long pressDuration = millis() - buttonPressTime;
+    if (!buttonLongPressed && pressDuration > 50 && pressDuration < 400) {
+      buttonClickCount++;
+      lastButtonClickTime = millis();
+    }
+  }
+
+  // Handle long press (continuous hold for 1 second)
+  if (buttonIsHeld && !buttonLongPressed && (millis() - buttonPressTime > 1000)) {
+    buttonLongPressed = true;
+    buttonClickCount = 0; // Cancel normal clicks
+    pomodoroRunning = false;
+    breakScreen = false;
+    pomodoroStart = 0;
+    Serial.println("Pomodoro Reset via Long Press");
+    triggerVibration(300);
+  }
+
+  lastButtonReading = buttonReading;
+
+  // Process button clicks after timeout
+  if (buttonClickCount > 0 && (millis() - lastButtonClickTime > TAP_TIMEOUT)) {
+    if (buttonClickCount == 1) {
+      // Single press: Toggle Pomodoro
+      if (!pomodoroRunning) {
+        pomodoroRunning = true;
+        pomodoroStart = millis();
+        Serial.println("Pomodoro Started");
+      } else {
+        pomodoroRunning = false;
+        Serial.println("Pomodoro Stopped");
+      }
+      triggerVibration(100);
+    }
+    else if (buttonClickCount == 2) {
+      // Double press: Toggle PC Stats screen
+      currentMode = (currentMode == MODE_BUDDY) ? MODE_PC_STATS : MODE_BUDDY;
+      manualStatsMode = (currentMode == MODE_PC_STATS);
+      lastModeCycleTime = millis(); // Reset cycle timer to prevent immediate cycling
+      triggerVibration(150);
+      Serial.println("[Button] Double Press: Toggled PC Stats Display");
+      if (currentMode == MODE_BUDDY) {
+        drawEyes(pupilX, pupilY);
+      } else {
+        drawPCStats();
+      }
+    }
+    buttonClickCount = 0;
+  }
+
+  bool touched = (digitalRead(TOUCH_PIN) == HIGH);
 
   // SLEEP MODE
   if (sleeping) {
@@ -1037,8 +1041,10 @@ void loop() {
       if (millis() - touchStart > 2000) {
         sleeping = false;
         wakeAnimation();
-        while (digitalRead(TOUCH_PIN)) delay(10);
+        while (digitalRead(TOUCH_PIN) == HIGH) delay(10);
         touchStart = 0;
+        lastTouched = false;
+        tapCount = 0;
       }
     } else {
       touchStart = 0;
@@ -1048,75 +1054,114 @@ void loop() {
     return;
   }
 
-  // TOUCH / MIC trigger Input
-  if (touched) {
-    if (touchStart == 0) {
-      touchStart = millis();
+  // AWAKE Touch & Tap detection
+  if (touched && !lastTouched) {
+    touchStart = millis();
+    lastTouched = true;
+  }
+  else if (!touched && lastTouched) {
+    unsigned long touchDuration = millis() - touchStart;
+    lastTouched = false;
+    
+    if (touchDuration > 50 && touchDuration < 400) {
+      tapCount++;
+      lastTapTime = millis();
     }
+  }
 
-    if (millis() - touchStart > 2000) {
-      // Long press: Sleep Animation
-      sleepAnimation();
-      sleeping = true;
-      while (digitalRead(TOUCH_PIN)) delay(10);
-      touchStart = 0;
+  // Long press to sleep (2 seconds)
+  if (touched && lastTouched && (millis() - touchStart > 2000)) {
+    tapCount = 0;
+    lastTouched = false;
+    sleepAnimation();
+    sleeping = true;
+    while (digitalRead(TOUCH_PIN) == HIGH) delay(10);
+    touchStart = 0;
+  }
+
+  // Process tap actions
+  if (tapCount > 0 && (millis() - lastTapTime > TAP_TIMEOUT)) {
+    if (tapCount == 1) {
+      // Single Tap: Fun reactive animations
+      int randAnim = random(0, 4); // 0=Happy, 1=Wink, 2=Heart, 3=Dizzy
+      if (randAnim == 0) {
+        triggerVibration(100);
+        drawHappyEyes();
+        delay(1500);
+      } else if (randAnim == 1) {
+        triggerVibration(100);
+        drawWinkEyes();
+        delay(1500);
+      } else if (randAnim == 2) {
+        triggerVibration(100);
+        drawHeartEyes();
+        delay(1500);
+      } else {
+        triggerVibration(100);
+        drawDizzyEyes();
+        delay(1500);
+      }
+      if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
+    } 
+    else if (tapCount == 2) {
+      // Double Tap: Angry or Sad expressions
+      int randExpression = random(0, 2);
+      if (randExpression == 0) {
+        // Double quick buzz
+        triggerVibration(80);
+        delay(150);
+        triggerVibration(80);
+        drawAngryEyes();
+        delay(2000);
+      } else {
+        // Double slow buzz
+        triggerVibration(150);
+        delay(200);
+        triggerVibration(150);
+        drawSadEyes();
+        delay(2000);
+      }
+      if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
     }
-  } else {
-    if (touchStart > 0) {
-      unsigned long touchDuration = millis() - touchStart;
-      touchStart = 0;
-      
-      if (touchDuration > 50 && touchDuration < 1500) {
-        // Short Press: Toggle voice recording state
-        if (recState == REC_IDLE) {
-          recState = REC_PENDING;
-          recPendingStart = millis();
-          aiReplyText = "Listening...";
-          aiReplyDisplayStart = millis();
-          drawEyes(pupilX, pupilY);
-          webSocket.sendTXT("{\"event\":\"speak_listening\"}");
-          Serial.println("[Touch] Recording Pending (Speaking Prompt)");
-        } else {
-          isRecording = false;
-          recState = REC_IDLE;
-          aiReplyText = "Thinking...";
-          aiReplyDisplayStart = millis();
-          drawEyes(pupilX, pupilY);
-          webSocket.sendTXT("{\"event\":\"stop_recording\"}");
-          Serial.println("[Touch] Recording Stopped");
-        }
+    else if (tapCount == 3) {
+      // Triple Tap: Toggle display mode
+      currentMode = (currentMode == MODE_BUDDY) ? MODE_PC_STATS : MODE_BUDDY;
+      manualStatsMode = (currentMode == MODE_PC_STATS);
+      lastModeCycleTime = millis(); // Reset cycle timer to prevent immediate cycling
+      triggerVibration(150);
+      Serial.println("[Touch] Triple Tap: Toggled PC Stats Display");
+      if (currentMode == MODE_BUDDY) {
+        drawEyes(pupilX, pupilY);
+      } else {
+        drawPCStats();
       }
     }
+    tapCount = 0;
   }
 
-  // RANDOM EYE MOVEMENT
-  if (millis() - lastMove > 1200) {
-    pupilX = random(-3, 4);
-    pupilY = random(-2, 3);
-    drawEyes(pupilX, pupilY);
-    lastMove = millis();
-  }
+  // Draw appropriate screen state
+  if (currentMode == MODE_PC_STATS) {
+    // Redraw PC Stats screen periodically
+    static unsigned long lastStatsDraw = 0;
+    if (millis() - lastStatsDraw > 1000) {
+      drawPCStats();
+      lastStatsDraw = millis();
+    }
+  } else {
+    // RANDOM EYE MOVEMENT
+    if (millis() - lastMove > 1200) {
+      pupilX = random(-3, 4);
+      pupilY = random(-2, 3);
+      drawEyes(pupilX, pupilY);
+      lastMove = millis();
+    }
 
-  // BLINK animation
-  if (millis() - lastBlink > random(3000, 7000)) {
-    blinkEyes();
-    lastBlink = millis();
+    // BLINK animation
+    if (millis() - lastBlink > random(3000, 7000)) {
+      blinkEyes();
+      lastBlink = millis();
+    }
   }
 
   delay(1);
-}
-
-void setupDeviceId() {
-  preferences.begin("deskbuddy", false);
-  deviceId = preferences.getString("deviceId", "");
-  if (deviceId.isEmpty()) {
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    char buf[12];
-    sprintf(buf, "db-%02X%02X", mac[4], mac[5]);
-    deviceId = String(buf);
-    preferences.putString("deviceId", deviceId);
-  }
-  preferences.end();
-  Serial.printf("[DeviceID] Active Device ID: %s\n", deviceId.c_str());
 }
