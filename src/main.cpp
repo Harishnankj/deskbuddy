@@ -1156,7 +1156,7 @@ void loop() {
     unsigned long touchDuration = millis() - touchStart;
     lastTouched = false;
     
-    if (touchDuration > 50 && touchDuration < 400) {
+    if (touchDuration > 10 && touchDuration < 400) {
       tapCount++;
       lastTapTime = millis();
     }
@@ -1173,7 +1173,7 @@ void loop() {
   }
 
   // Process tap actions
-  if (tapCount > 0 && (millis() - lastTapTime > TAP_TIMEOUT)) {
+  if (tapCount > 0 && (millis() - lastTapTime > 130)) {
     if (tapCount == 1) {
       // Single Tap: Fun reactive animations
       int randAnim = random(0, 4); // 0=Happy, 1=Wink, 2=Heart, 3=Dizzy
@@ -1196,8 +1196,8 @@ void loop() {
       }
       if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
     } 
-    else if (tapCount == 2) {
-      // Double Tap: Angry or Sad expressions
+    else if (tapCount >= 2) {
+      // Double Tap or more: Angry or Sad expressions
       int randExpression = random(0, 2);
       if (randExpression == 0) {
         // Double quick buzz
@@ -1215,19 +1215,6 @@ void loop() {
         delay(2000);
       }
       if (currentMode == MODE_BUDDY) drawEyes(pupilX, pupilY);
-    }
-    else if (tapCount == 3) {
-      // Triple Tap: Toggle display mode
-      currentMode = (currentMode == MODE_BUDDY) ? MODE_PC_STATS : MODE_BUDDY;
-      manualStatsMode = (currentMode == MODE_PC_STATS);
-      lastModeCycleTime = millis(); // Reset cycle timer to prevent immediate cycling
-      triggerVibration(150);
-      Serial.println("[Touch] Triple Tap: Toggled PC Stats Display");
-      if (currentMode == MODE_BUDDY) {
-        drawEyes(pupilX, pupilY);
-      } else {
-        drawPCStats();
-      }
     }
     tapCount = 0;
   }
